@@ -505,9 +505,9 @@ load (const char *file_name, struct intr_frame *if_) {
          case PT_LOAD:
             if (validate_segment (&phdr, file)) {
                bool writable = (phdr.p_flags && PF_W) != 0;
-               uint64_t file_page = phdr.p_offset & ~PGMASK;
-               uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
-               uint64_t page_offset = phdr.p_vaddr & PGMASK;
+               uint64_t file_page = phdr.p_offset & ~PGMASK; 
+					uint64_t mem_page = phdr.p_vaddr & ~PGMASK; // 테이블 정보(주소 앞에부터 ~12번째) (유저 가상 테이블)
+					uint64_t page_offset = phdr.p_vaddr & PGMASK; // 주소 뒤에 11자리  (유저 가상 테이블 오프셋)
                uint32_t read_bytes, zero_bytes;
                if (phdr.p_filesz > 0) {
                   /* Normal segment.
@@ -736,15 +736,34 @@ install_page (void *upage, void *kpage, bool writable) {
          && pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
+struct load_segment_passing_args{
+	struct file* file;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+};
+
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
-
+// lazy_load_segment는 곧 load_segment의 일부분을 떼서 동작시키는것(늦게 동작시키고 싶은 부분을 떼서?)
 static bool
 lazy_load_segment (struct page *page, void *aux) {
    /* TODO: Load the segment from the file */
    /* TODO: This called when the first page fault occurs on address VA. */
    /* TODO: VA is available when calling this function. */
+   struct load_segment_passing_args* load_segment_passing_args = (struct load_segment_passing_args*)aux;
+	struct file * file = load_segment_passing_args->file; 
+	size_t page_read_bytes = load_segment_passing_args->page_read_bytes;
+	size_t page_zero_bytes = load_segment_passing_args->page_zero_bytes;
+
+	/* Load this page. */
+	if (file_read (file, page, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (page);
+		return false;
+	}
+	memset(page + page_read_bytes, 0, page_zero_bytes);
+	free(aux);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -776,7 +795,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* TODO: Set up aux to pass information to the lazy_load_segment. */
-      void *aux = NULL;
+      // lazy_load_segment를 위한 AUX값을 세팅해 줘라
+		struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
+		aux->file= file;
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
       if (!vm_alloc_page_with_initializer (VM_ANON, upage,
                writable, lazy_load_segment, aux))
          return false;

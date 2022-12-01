@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/mmu.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -44,18 +45,21 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
-
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
+	struct page* new_page = palloc_get_page(PAL_USER|PAL_ZERO);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
+	// va 할당 안받은경우
+	if ( ( new_page = spt_find_page (spt, upage) ) == NULL) {
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
-
 		/* TODO: Insert the page into the spt. */
+		uninit_new(new_page, upage, init ,VM_UNINIT, aux, new_page->operations->swap_in);
+		spt_insert_page(spt, new_page);
 	}
+	init(new_page, aux);
 err:
 	return false;
 }
@@ -63,9 +67,15 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
 	/* TODO: Fill this function. */
-
+	struct page *page = NULL;
+	for(int i = 0; i <100; i++){
+		if (spt->pages[i]->va == va){
+			// page = pml4_get_page(thread_current()->pml4, va);			
+			page = spt->pages[i];
+			break;
+		}
+	}
 	return page;
 }
 
@@ -75,7 +85,13 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
-
+	for(int i = 0; i <100; i++){
+		if (spt->pages[i] == NULL){
+			spt->pages[i] = page;
+			succ = true;
+			break;
+		}
+	}
 	return succ;
 }
 
@@ -112,6 +128,8 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
+	// page_fault가 발생한 page의 frame을 반환?!
+
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -174,6 +192,10 @@ vm_do_claim_page (struct page *page) {
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	// init pages
+	for(int i=0; i<100; i++){
+		spt->pages[i] = NULL;
+	}	
 }
 
 /* Copy supplemental page table from src to dst */
