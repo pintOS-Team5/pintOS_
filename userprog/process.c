@@ -809,6 +809,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
    }
+   printf("::::::::::HERHE::::::::::::\n");
    return true;
 }
 
@@ -822,7 +823,10 @@ setup_stack (struct intr_frame *if_) {
     * TODO: If success, set the rsp accordingly.
     * TODO: You should mark the page is stack. */
    /* TODO: Your code goes here */
-
+   success = vm_claim_page(stack_bottom);
+   if (success)
+      if_->rsp = USER_STACK;
+   
    return success;
 }
 #endif /* VM */
