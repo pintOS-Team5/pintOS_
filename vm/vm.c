@@ -44,27 +44,36 @@ static struct frame *vm_evict_frame (void);
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
-
+	printf("vm_alloc_page_with_initializer start\n");
 	ASSERT (VM_TYPE(type) != VM_UNINIT);
-	struct page *new_page;
+	struct page *new_page = NULL;
 	// = palloc_get_page(PAL_USER | PAL_ZERO);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 
 	/* Check whether the upage is already occupied or not. */
 	// va 할당 안받은경우
-	if ( ( new_page = spt_find_page (spt, upage) ) == NULL) {
+	new_page = spt_find_page (spt, upage);
+	if (new_page == NULL) {
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
 		/* TODO: Insert the page into the spt. */
-		// uninit_new(new_page, upage, init ,VM_UNINIT, aux, new_page->operations->swap_in);
-		new_page = palloc_get_page(PAL_USER | PAL_ZERO);
-		uninit_new(new_page, upage, init ,VM_UNINIT, aux, new_page->uninit.page_initializer);
+		/* 페이지를 생성하고 VM 유형에 따라 초기값을 가져온 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다. 
+			uninit_new를 호출한 후 필드를 수정해야 합니다. 페이지를 spt에 삽입합니다.*/
+		// new_page=palloc_get_page(PAL_USER|PAL_ZERO);
+		// else if (type == VM_FILE){
+		// }
+		printf("null\n");
+		new_page = (struct page *)malloc(sizeof(struct page));
+		// uninit_new(new_page, upage, init ,VM_UNINIT, aux, new_page->uninit.page_initializer);
+		if(VM_TYPE(type) == VM_ANON){
+			uninit_new(new_page, upage, init, type, aux, anon_initializer);
+		}
 		if (!spt_insert_page(spt, new_page))
 			goto err;
 	}
-	init(new_page, aux);
-	
+
+	printf("vm_alloc_page_with_initializer end\n");
 	return true;
 err:
 	return false;
@@ -83,11 +92,13 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	// 	}
 	// }
   	struct hash_elem *e;
-
-  	p->va = va;
-  	e = hash_find (spt, &p->hash_elem);
+	struct page tmp_p;
+	tmp_p.va = va;
+  	e = hash_find (spt, &tmp_p.hash_elem);
 	if (e)
+		// printf("hash exists\n");
 		p = hash_entry(e, struct page, hash_elem);
+		// printf("find element va = %d\n", p->va);
 	return p;
 }
 
@@ -143,8 +154,14 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	// page_fault가 발생한 page의 frame을 반환?!
-	frame = palloc_get_page(PAL_USER | PAL_ZERO);
+	frame = (struct frame *)malloc(sizeof(struct frame));
+	frame->kva =  palloc_get_page(PAL_USER | PAL_ZERO);
+	frame->page = NULL;
+	if (frame == NULL || frame->kva == NULL){
+		PANIC("todo");
+	}
 
+	ASSERT(is_kernel_vaddr(frame->kva)); // 추가한 검증
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -164,12 +181,31 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+	printf("start try_handle_fault\n");
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	// 현재 항상 bogus fault로 동작
+	printf("vm_try_handle_fault \n");
+	printf("fault_addr :%X, user: %d, write : %d, not_present :%d\n", addr, user, write, not_present);
+	printf("page_addr :%X\n", pg_round_down(addr));
+	page = spt_find_page(spt, pg_round_down(addr));
+	printf_hash(spt);
+	
+	if (page != NULL){
+		printf("---match---\n");
+		printf("%X\n",page->va);
+		vm_do_claim_page (page);
+		printf("end try_handler_fault\n");
+		return true;
+	}
+	else{
+		return false;
+	}
 
-	return vm_do_claim_page (page);
+
+	
 }
 
 /* Free the page.
@@ -181,10 +217,17 @@ vm_dealloc_page (struct page *page) {
 }
 
 /* Claim the page that allocate on VA. */
+// va를 할당할 페이지를 요청합니다.
 bool
 vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
 	/* TODO: Fill this function */
+	struct thread *curr = thread_current();
+	struct page *page = NULL;	
+	// printf("vm_claim_page start\n");
+	pg_round_down(va);
+	vm_alloc_page(VM_ANON, va, true);
+	page = spt_find_page(&curr->spt, va);
+	printf("page->va : %X\n", page->va);
 
 	return vm_do_claim_page (page);
 }
@@ -192,17 +235,29 @@ vm_claim_page (void *va UNUSED) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+	printf("vm_do_claim_page start\n");
 	struct frame *frame = vm_get_frame ();
+	struct thread *curr = thread_current();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	spt_insert_page(&thread_current()->spt, page);
+	// 페이지 테이블 항목을 삽입하여 페이지의 VA를 프레임의 PA에 매핑합니다.
+	printf("page->va : %X\n", page->va);
+	printf("frame->kva : %X\n", frame->kva);
+	printf("page->type : %X\n", page->uninit.type);
+
+
+	pml4_set_page(curr->pml4, page->va, frame->kva, true);
+	// spt_insert_page(&thread_current()->spt, page);
+	// printf("memcpy::::::\n");
+	// memcpy(page->va, "12312", 20);
 
 	return swap_in (page, frame->kva);
 }
+
 /* Returns a hash value for page p. */
 unsigned
 page_hash (const struct hash_elem *p_, void *aux UNUSED) {
@@ -228,6 +283,43 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	// 	spt->pages[i] = NULL;
 	// }
 	hash_init(spt, page_hash, page_less, NULL);
+	
+	// void* test = "12312";
+	// struct thread * curr = thread_current();
+	// struct page *page = NULL;
+	// page = spt_find_page(&curr->spt, test);
+	// printf_hash(&curr->spt);
+	// ASSERT(page == NULL);
+	// printf("page: %d", page==NULL);
+	
+
+	//테스트
+	// struct thread * curr = thread_current();
+	// void *test_va = "1000";
+	// struct page *p;
+	// // struct page *p=(struct page *)malloc(sizeof(struct page));
+	// struct page tmp_p;
+	// struct page tmp_p_2;
+	// struct hash_elem *e;
+
+	// //말록으로 넣기
+	// //스택으로 넣기
+	// tmp_p.va = test_va;
+
+	
+	
+	// tmp_p.va = 1231234;
+	// hash_insert(&curr->spt, &tmp_p.hash_elem);
+	// e = hash_find (&curr->spt, &tmp_p.hash_elem);
+	// struct page *tmp_p_3 = &tmp_p;
+	// spt_insert_page(&curr->spt, tmp_p_3);
+	// printf_hash(&curr->spt);
+	// p = spt_find_page(&curr->spt, test_va);
+	// if(p){
+	// 	printf("result : %d\n", p->va);
+	// }
+	// printf("init end\n");
+
 }
 
 /* Copy supplemental page table from src to dst */
@@ -241,4 +333,18 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+}
+
+
+void
+printf_hash(struct hash *h){
+	struct hash_iterator i;
+   	hash_first (&i, h);
+	printf("===== hash 순회시작 =====\n");
+   	while (hash_next (&i))
+   	{
+   	struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+	printf("va: %X\n",p->va);
+   	}
+	printf("===== hash 순회종료 =====\n");
 }

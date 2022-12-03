@@ -45,15 +45,27 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
+	printf("uninit_initialize call\n");
 	struct uninit_page *uninit = &page->uninit;
+	printf("uninit->type: %X\n", uninit->type);
 
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
 
+	// stack최초 할당 예외처리
+	if(init == NULL || aux == NULL){
+		printf("anon_start\n");
+		anon_initializer(page, uninit->type, kva);
+		return true;
+	}
+
 	/* TODO: You may need to fix this function. */
-	return uninit->page_initializer (page, uninit->type, kva) &&
-		(init ? init (page, aux) : true);
+	// return uninit->page_initializer (page, uninit->type, kva) &&
+	// 	(init ? init (page, aux) : true);
+	init(page,aux);
+	printf("uninit_initialize end\n");
+	return true;
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
