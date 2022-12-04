@@ -49,6 +49,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	struct page *new_page = NULL;
 	// = palloc_get_page(PAL_USER | PAL_ZERO);
 	struct supplemental_page_table *spt = &thread_current ()->spt;
+	printf("thread_name : %s\n", thread_name());
+	// printf_hash(spt);
 
 	/* Check whether the upage is already occupied or not. */
 	// va 할당 안받은경우
@@ -60,10 +62,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Insert the page into the spt. */
 		/* 페이지를 생성하고 VM 유형에 따라 초기값을 가져온 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다. 
 			uninit_new를 호출한 후 필드를 수정해야 합니다. 페이지를 spt에 삽입합니다.*/
-		// new_page=palloc_get_page(PAL_USER|PAL_ZERO);
-		// else if (type == VM_FILE){
-		// }
-		printf("null\n");
 		new_page = (struct page *)malloc(sizeof(struct page));
 		// uninit_new(new_page, upage, init ,VM_UNINIT, aux, new_page->uninit.page_initializer);
 		if(VM_TYPE(type) == VM_ANON){
@@ -91,13 +89,19 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	// 		break;
 	// 	}
 	// }
-  	struct hash_elem *e;
-	struct page tmp_p;
-	tmp_p.va = va;
-  	e = hash_find (spt, &tmp_p.hash_elem);
+	printf("find_page start\n");
+  	struct hash_elem *e = NULL;
+	struct page page;
+	page.va = va;
+
+
+	lock_acquire(&spt->spt_lock);
+  	e = hash_find (&spt->hash, &page.hash_elem);
+	lock_release(&spt->spt_lock);
 	if (e)
 		// printf("hash exists\n");
 		p = hash_entry(e, struct page, hash_elem);
+		printf("find_page success\n");
 		// printf("find element va = %d\n", p->va);
 	return p;
 }
@@ -115,8 +119,11 @@ spt_insert_page (struct supplemental_page_table *spt,
 	// 		break;
 	// 	}
 	// }
-	if (hash_insert(spt, &page->hash_elem) == NULL)
+	lock_acquire(&spt->spt_lock);
+	if (hash_insert(&spt->hash, &page->hash_elem) == NULL)
+		printf("insert_success");
 		succ = true;
+	lock_release(&spt->spt_lock);
 	return succ;
 }
 
@@ -182,27 +189,38 @@ bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	printf("start try_handle_fault\n");
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	printf("thread_name : %s\n", thread_name());
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	// 현재 항상 bogus fault로 동작
 	printf("vm_try_handle_fault \n");
 	printf("fault_addr :%X, user: %d, write : %d, not_present :%d\n", addr, user, write, not_present);
+	// printf("page_addr :%X\n", pg_round_down(addr));
+	// page = spt_find_page(spt, pg_round_down(addr));
 	printf("page_addr :%X\n", pg_round_down(addr));
-	page = spt_find_page(spt, pg_round_down(addr));
-	printf_hash(spt);
-	
+	printf("thread_name : %s, spt_addr : %X\n", thread_name(), &thread_current ()->spt.hash);
+	lock_acquire(&spt->spt_lock);
+	printf_hash(&spt->hash);
+	lock_release(&spt->spt_lock);
+	page = spt_find_page(&thread_current ()->spt, pg_round_down(addr));
+	// printf_hash(spt);
+	// lock_acquire(&spt->spt_lock);
+	// printf_hash(&spt->hash);
+	// lock_release(&spt->spt_lock);
+
 	if (page != NULL){
 		printf("---match---\n");
 		printf("%X\n",page->va);
-		vm_do_claim_page (page);
-		printf("end try_handler_fault\n");
-		return true;
+		return vm_do_claim_page (page);
+		// printf("end try_handler_fault\n");
+		// return true;
 	}
-	else{
-		return false;
-	}
+	// else{
+	// 	printf("im not here\n");
+	// 	return false;
+	// }
 
 
 	
@@ -249,8 +267,8 @@ vm_do_claim_page (struct page *page) {
 	printf("frame->kva : %X\n", frame->kva);
 	printf("page->type : %X\n", page->uninit.type);
 
-
 	pml4_set_page(curr->pml4, page->va, frame->kva, true);
+
 	// spt_insert_page(&thread_current()->spt, page);
 	// printf("memcpy::::::\n");
 	// memcpy(page->va, "12312", 20);
@@ -282,18 +300,35 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	// for(int i=0; i<100; i++){
 	// 	spt->pages[i] = NULL;
 	// }
-	hash_init(spt, page_hash, page_less, NULL);
+	printf("spt init=========\n");
+	// struct hash pages;
+	// spt->hash = (struct hash *)malloc(sizeof (struct hash *));
+	hash_init(&spt->hash, page_hash, page_less, NULL);
+	// spt->hash = pages;
+	lock_init(&spt->spt_lock);
+	printf("spt init end=========\n");
 	
-	// void* test = "12312";
+	
+	// // hash테스트
 	// struct thread * curr = thread_current();
-	// struct page *page = NULL;
-	// page = spt_find_page(&curr->spt, test);
+	// struct page *p=(struct page *)malloc(sizeof(struct page));
+	// void *test_va = "1000";
+	// p->va = test_va;
+
+	// printf("thread_name : %s\n", thread_name());
+	// spt_insert_page(spt, p);
 	// printf_hash(&curr->spt);
+	// struct page *p2 = spt_find_page(spt, test_va);
+	// // p2 = spt_find_page(spt, test_va);
+	// if(p2){
+	// 	printf("result : %X\n", p2->va);
+	// }
+	//------------위에꺼만 사용
 	// ASSERT(page == NULL);
 	// printf("page: %d", page==NULL);
 	
 
-	//테스트
+	// //테스트
 	// struct thread * curr = thread_current();
 	// void *test_va = "1000";
 	// struct page *p;
@@ -302,24 +337,16 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	// struct page tmp_p_2;
 	// struct hash_elem *e;
 
-	// //말록으로 넣기
-	// //스택으로 넣기
 	// tmp_p.va = test_va;
-
-	
-	
-	// tmp_p.va = 1231234;
-	// hash_insert(&curr->spt, &tmp_p.hash_elem);
-	// e = hash_find (&curr->spt, &tmp_p.hash_elem);
 	// struct page *tmp_p_3 = &tmp_p;
 	// spt_insert_page(&curr->spt, tmp_p_3);
 	// printf_hash(&curr->spt);
 	// p = spt_find_page(&curr->spt, test_va);
+	// p = spt_find_page(&curr->spt, test_va); 
 	// if(p){
-	// 	printf("result : %d\n", p->va);
+	// 	printf("result : %X\n", p->va);
 	// }
-	// printf("init end\n");
-
+	
 }
 
 /* Copy supplemental page table from src to dst */
@@ -337,14 +364,20 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 
 
 void
-printf_hash(struct hash *h){
+printf_hash(struct supplemental_page_table *spt){
+	struct hash *h = &spt->hash;
 	struct hash_iterator i;
    	hash_first (&i, h);
 	printf("===== hash 순회시작 =====\n");
    	while (hash_next (&i))
    	{
-   	struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-	printf("va: %X\n",p->va);
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		if (p->frame == NULL){
+			printf("va: %X, p_addr : %X\n",p->va, p);
+		}
+		else {
+			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+		}
    	}
 	printf("===== hash 순회종료 =====\n");
 }

@@ -72,7 +72,6 @@ initd (void *f_name) {
 #ifdef VM
    supplemental_page_table_init (&thread_current ()->spt);
 #endif
-
    process_init ();
 
    if (process_exec (f_name) < 0)
@@ -666,7 +665,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
    ASSERT (pg_ofs (upage) == 0);
    ASSERT (ofs % PGSIZE == 0);
 
+
    file_seek (file, ofs);
+   printf("file_pos : %d\n", file->pos);
+   printf("read_bytes : %d\n", read_bytes);
+   printf("zero_bytes : %d\n", zero_bytes);
    while (read_bytes > 0 || zero_bytes > 0) {
       /* Do calculate how to fill this page.
        * We will read PAGE_READ_BYTES bytes from FILE
@@ -693,10 +696,18 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
          return false;
       }
 
+      printf("page_read_bytes : %d\n", page_read_bytes);
+      printf("page_zero_bytes : %d\n", page_zero_bytes);  
+      printf("read_bytes : %d\n", read_bytes);
+      printf("zero_bytes : %d\n", zero_bytes);
+
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+
+
+
    }
    return true;
 }
@@ -739,6 +750,7 @@ install_page (void *upage, void *kpage, bool writable) {
 #else
 struct load_segment_passing_args{
 	struct file* file;
+   off_t pos;
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
 };
@@ -757,15 +769,22 @@ lazy_load_segment (struct page *page, void *aux) {
 	struct file * file = load_segment_passing_args->file; 
 	size_t page_read_bytes = load_segment_passing_args->page_read_bytes;
 	size_t page_zero_bytes = load_segment_passing_args->page_zero_bytes;
-   printf("lazy_page_read_bytes:%d\n", page_read_bytes);
-   printf("lazy_page_zero_bytes:%d\n", page_zero_bytes);
+   off_t pos = load_segment_passing_args->pos;
+   printf("lazy_page_read_bytes:%d\n", page_read_bytes); 
+   printf("lazy_page_zero_bytes:%d\n", page_zero_bytes); 
+   printf("lazy_page_file_pos:%d\n", pos); 
    
+   //file pos값 설정
+   file_seek(file, pos);
+
 	/* Load this page. */
-	if (file_read (file, page, page_read_bytes) != (int) page_read_bytes) {
-		palloc_free_page (page);
+	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (page->frame->kva);
+      
 		return false;
 	}
-	memset(page + page_read_bytes, 0, page_zero_bytes);
+	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+   // hex_dump(page->frame->kva, page->frame->kva, 4096, true);
 	free(aux);
    printf("lazy_load segement end\n");
 	return true;
@@ -792,27 +811,45 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
    ASSERT (pg_ofs (upage) == 0);
    ASSERT (ofs % PGSIZE == 0);
 
+   file_seek(file, ofs);
+   off_t pos = file->pos;
+   printf("file_pos : %d\n", file->pos);
+   printf("read_bytes : %d\n", read_bytes);
+   printf("zero_bytes : %d\n", zero_bytes);
    while (read_bytes > 0 || zero_bytes > 0) {
       /* Do calculate how to fill this page.
        * We will read PAGE_READ_BYTES bytes from FILE
        * and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
+      
       /* TODO: Set up aux to pass information to the lazy_load_segment. */
       // lazy_load_segment를 위한 AUX값을 세팅해 줘라
 		struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
 		aux->file= file;
+      aux->pos = pos;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
       if (!vm_alloc_page_with_initializer (VM_ANON, upage,
                writable, lazy_load_segment, aux))
          return false;
-
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+
+
+      // file pos값 증가
+      // if (pos < 4096){
+      //    pos = 4096;
+      // }
+      // else {
+      pos += page_read_bytes;
+      // }
+      
+      printf("file_pos : %d\n", aux->pos);
+      printf("page_read_bytes : %d\n", aux->page_read_bytes);
+      printf("page_zero_bytes : %d\n", aux->page_zero_bytes);  
       printf("read_bytes : %d\n", read_bytes);
       printf("zero_bytes : %d\n", zero_bytes);
    }
@@ -840,4 +877,5 @@ setup_stack (struct intr_frame *if_) {
       // if_->rsp = success;
    return success;
 }
+
 #endif /* VM */
