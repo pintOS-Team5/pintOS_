@@ -27,7 +27,6 @@ vm_anon_init (void) {
 /* Initialize the file mapping */
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
-	printf("anon_initialize\n");
 	/* Set up the handler */
 	page->operations = &anon_ops;
 

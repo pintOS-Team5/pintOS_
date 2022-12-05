@@ -45,9 +45,7 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
-	printf("uninit_initialize call\n");
 	struct uninit_page *uninit = &page->uninit;
-	printf("uninit->type: %X\n", uninit->type);
 
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
@@ -55,7 +53,6 @@ uninit_initialize (struct page *page, void *kva) {
 
 	// stack최초 할당 예외처리
 	if(init == NULL || aux == NULL){
-		printf("anon_start\n");
 		anon_initializer(page, uninit->type, kva);
 		return true;
 	}

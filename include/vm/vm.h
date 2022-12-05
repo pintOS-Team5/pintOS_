@@ -93,13 +93,6 @@ struct supplemental_page_table {
 	// struct page *pages[100];
 	struct hash hash;
 	struct lock spt_lock;
-
-	// size_t elem_cnt;            /* Number of elements in table. */
-	// size_t bucket_cnt;          /* Number of buckets, a power of 2. */
-	// struct list *buckets;       /* Array of `bucket_cnt' lists. */
-	// hash_hash_func *hash;       /* Hash function. */
-	// hash_less_func *less;       /* Comparison function. */
-	// void *aux;   
 };
 
 #include "threads/thread.h"

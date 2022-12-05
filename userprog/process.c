@@ -233,7 +233,7 @@ process_exec (void *f_name) {
    palloc_free_page (file_name);
    if (!success)
       return -1;
-   printf("before_iret\n");
+   
    /* Start switched process. */
    do_iret (&_if);
    NOT_REACHED ();
@@ -533,10 +533,8 @@ load (const char *file_name, struct intr_frame *if_) {
    /* Set up stack. */
    if (!setup_stack (if_))
       goto done;
-   // printf("stack end if_-> va : %X=======\n", if_->rsp);
    /* Start address. */
    if_->rip = ehdr.e_entry;
-   printf("if_->rip = %X\n", if_->rip);
 
    /* TODO: Your code goes here.
     * TODO: Implement argument passing (see project2/argument_passing.html). */
@@ -667,9 +665,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 
    file_seek (file, ofs);
-   printf("file_pos : %d\n", file->pos);
-   printf("read_bytes : %d\n", read_bytes);
-   printf("zero_bytes : %d\n", zero_bytes);
    while (read_bytes > 0 || zero_bytes > 0) {
       /* Do calculate how to fill this page.
        * We will read PAGE_READ_BYTES bytes from FILE
@@ -691,15 +686,9 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
       /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) {
-         printf("fail\n");
          palloc_free_page (kpage);
          return false;
       }
-
-      printf("page_read_bytes : %d\n", page_read_bytes);
-      printf("page_zero_bytes : %d\n", page_zero_bytes);  
-      printf("read_bytes : %d\n", read_bytes);
-      printf("zero_bytes : %d\n", zero_bytes);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -761,7 +750,6 @@ struct load_segment_passing_args{
 // lazy_load_segment는 곧 load_segment의 일부분을 떼서 동작시키는것(늦게 동작시키고 싶은 부분을 떼서?)
 static bool
 lazy_load_segment (struct page *page, void *aux) {
-   printf("lazy_load segement\n");
    /* TODO: Load the segment from the file */
    /* TODO: This called when the first page fault occurs on address VA. */
    /* TODO: VA is available when calling this function. */
@@ -770,9 +758,6 @@ lazy_load_segment (struct page *page, void *aux) {
 	size_t page_read_bytes = load_segment_passing_args->page_read_bytes;
 	size_t page_zero_bytes = load_segment_passing_args->page_zero_bytes;
    off_t pos = load_segment_passing_args->pos;
-   printf("lazy_page_read_bytes:%d\n", page_read_bytes); 
-   printf("lazy_page_zero_bytes:%d\n", page_zero_bytes); 
-   printf("lazy_page_file_pos:%d\n", pos); 
    
    //file pos값 설정
    file_seek(file, pos);
@@ -784,9 +769,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		return false;
 	}
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
-   // hex_dump(page->frame->kva, page->frame->kva, 4096, true);
 	free(aux);
-   printf("lazy_load segement end\n");
 	return true;
 }
 
@@ -813,9 +796,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
    file_seek(file, ofs);
    off_t pos = file->pos;
-   printf("file_pos : %d\n", file->pos);
-   printf("read_bytes : %d\n", read_bytes);
-   printf("zero_bytes : %d\n", zero_bytes);
    while (read_bytes > 0 || zero_bytes > 0) {
       /* Do calculate how to fill this page.
        * We will read PAGE_READ_BYTES bytes from FILE
@@ -838,29 +818,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
 
-
-      // file pos값 증가
-      // if (pos < 4096){
-      //    pos = 4096;
-      // }
-      // else {
       pos += page_read_bytes;
-      // }
-      
-      printf("file_pos : %d\n", aux->pos);
-      printf("page_read_bytes : %d\n", aux->page_read_bytes);
-      printf("page_zero_bytes : %d\n", aux->page_zero_bytes);  
-      printf("read_bytes : %d\n", read_bytes);
-      printf("zero_bytes : %d\n", zero_bytes);
    }
-   printf("load_segement end\n");
    return true;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-   printf("stack start=======\n");
    bool success = false;
    void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
@@ -868,13 +833,11 @@ setup_stack (struct intr_frame *if_) {
     * TODO: If success, set the rsp accordingly.
     * TODO: You should mark the page is stack. */
    /* TODO: Your code goes here */
-   printf("input stack va : %X\n",stack_bottom);
    success = vm_claim_page(stack_bottom);
    // 비트 마킹하기
    if (success)
       if_->rsp = USER_STACK;
       success = true;
-      // if_->rsp = success;
    return success;
 }
 
