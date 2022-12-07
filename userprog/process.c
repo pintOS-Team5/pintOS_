@@ -737,12 +737,6 @@ install_page (void *upage, void *kpage, bool writable) {
          && pml4_set_page (t->pml4, upage, kpage, writable));
 }
 #else
-struct load_segment_passing_args{
-	struct file* file;
-   off_t pos;
-	size_t page_read_bytes;
-	size_t page_zero_bytes;
-};
 
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the

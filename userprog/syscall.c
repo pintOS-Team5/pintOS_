@@ -49,6 +49,41 @@ syscall_init (void) {
 	lock_init(&filesys_lock);
 }
 
+bool
+check_valid_addr(void * addr){
+	struct thread *curr = thread_current();
+	if ((addr
+			&& is_user_vaddr(addr)
+			&& (spt_find_page(&curr->spt, addr)!= NULL)))
+		  	// && pml4_get_page(curr->pml4, addr)))
+		return true;
+	else
+		return false;
+}
+
+bool
+check_valid_buffer(void* buffer, unsigned size){
+	// offset 정렬
+	struct thread *curr = thread_current();
+	if (pg_ofs(buffer) != 0){
+		size += (buffer - pg_round_down(buffer));
+		buffer = pg_round_down(buffer);
+	}
+	ASSERT(pg_ofs(buffer) == 0); //정렬 여부 확인
+
+	while(1){
+		if (!check_valid_addr(buffer))
+			return false;
+		if(size < PGSIZE){
+			break;
+		}
+		buffer += PGSIZE;
+		size -= PGSIZE;
+	}
+	return true;
+}
+
+
 void
 sys_halt_handler(){
 	power_off();
@@ -63,9 +98,7 @@ sys_exit_handler(int arg1){
 bool sys_create_handler(char *filename, unsigned intial_size){
 	bool result;
 	struct thread *curr = thread_current();
-	if (!(filename 
-			&& is_user_vaddr(filename)
-		  	&& pml4_get_page(curr->pml4, filename)))
+	if (!check_valid_addr(filename))
 	{
 		curr->my_exit_code = -1;
 		thread_exit();
@@ -87,9 +120,7 @@ bool sys_remove_handler(char *filename){
 int sys_open_handler(char *filename){
 	// return -1;
 	struct thread *curr = thread_current();
-	if (!(filename
-			&& is_user_vaddr(filename)
-		  	&& pml4_get_page(curr->pml4, filename)))
+	if (!check_valid_addr(filename))
 	{
 		curr->my_exit_code = -1;
 		thread_exit();
@@ -147,11 +178,13 @@ int sys_filesize_handler(int fd){
 int sys_read_handler(int fd, void* buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer))
+	// if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer))
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !(check_valid_buffer(buffer, size)))
 	{
 		thread_current()->my_exit_code = -1;
 		thread_exit();
 	}
+	
 	struct file *f = curr->fd_table[fd];
 	lock_acquire(&filesys_lock);
 	result = file_read(f, buffer, size);
@@ -189,9 +222,7 @@ int sys_wait_handler(int pid){
 
 int sys_exec_handler(char * cmd_line){
 	struct thread *curr = thread_current();
-	if (!(cmd_line
-			&& is_user_vaddr(cmd_line)
-		  	&& pml4_get_page(curr->pml4, cmd_line)))
+	if (!check_valid_addr(cmd_line))
 	{
 		curr->my_exit_code = -1;
 		thread_exit();
@@ -283,4 +314,24 @@ syscall_handler (struct intr_frame *f) {
 	default:
 		break;
 	}
+}
+
+
+void
+printf_hash2(struct supplemental_page_table *spt){
+	struct hash *h = &spt->hash;
+	struct hash_iterator i;
+   	hash_first (&i, h);
+	printf("===== hash 순회시작 =====\n");
+   	while (hash_next (&i))
+   	{
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		if (p->frame == NULL){
+			printf("va: %X, p_addr : %X\n",p->va, p);
+		}
+		else {
+			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+		}
+   	}
+	printf("===== hash 순회종료 =====\n");
 }

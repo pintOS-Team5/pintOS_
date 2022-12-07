@@ -40,6 +40,13 @@ struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
 
+struct load_segment_passing_args{
+	struct file* file;
+	off_t pos;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
+};
+
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
@@ -51,6 +58,8 @@ struct page {
 
 	/* Your implementation */
 	struct hash_elem hash_elem;
+	bool writable;
+	char vm_type;
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
