@@ -199,6 +199,10 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	if (vm_alloc_page(VM_ANON, addr, true)){//할당받고
+		vm_claim_page(addr);//frame이랑 연결하고
+		thread_current()->stack_bottom -= PGSIZE;//한 페이지만큼 stack bottom 내려주고
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -215,11 +219,29 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	// 현재 항상 bogus fault로 동
-	page = spt_find_page(&thread_current()->spt, pg_round_down(addr));
+	// page = spt_find_page(&thread_current()->spt, pg_round_down(addr));
 
-	if (page != NULL){
-		return vm_do_claim_page (page);
+	// if (page != NULL){
+	// 	return vm_do_claim_page (page);
+	// }
+
+	//유저 스페이스를 가리키고 있어야 함
+	if (is_kernel_vaddr(addr))
+		return false;
+
+	void * stack_pointer = f->rsp;
+	//커널 스택을 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
+	if (is_kernel_vaddr(f->rsp))
+		stack_pointer = thread_current()->stack_pointer;
+
+	if (vm_claim_page(addr))
+		return true;
+	// frame과 연결이 되지 않으면
+	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && stack_pointer - 8 <= addr){
+		vm_stack_growth(thread_current ()->stack_bottom - PGSIZE);
+		return true;
 	}
+	return false;
 }
 
 /* Free the page.

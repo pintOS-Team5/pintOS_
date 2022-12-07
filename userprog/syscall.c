@@ -170,7 +170,7 @@ int sys_filesize_handler(int fd){
 	struct file **f_table = curr->fd_table;
 	struct file *f = f_table[fd]; 
 	lock_acquire(&filesys_lock);
-	result =  file_length(f);
+	result = file_length(f);
 	lock_release(&filesys_lock);
 	return result;
 }
@@ -178,7 +178,6 @@ int sys_filesize_handler(int fd){
 int sys_read_handler(int fd, void* buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	// if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer))
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !(check_valid_buffer(buffer, size)))
 	{
 		thread_current()->my_exit_code = -1;
@@ -200,7 +199,7 @@ int sys_write_handler(int fd, void *buffer, unsigned size){
 		putbuf(buffer, size);
 		return size;
 	}
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer)) 
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || !(check_valid_buffer(buffer, size))) 
 	{
 		curr->my_exit_code = -1;
 		thread_exit();
@@ -266,6 +265,7 @@ void
 syscall_handler (struct intr_frame *f) { 
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
+	thread_current()->stack_pointer = f->rsp;
 	switch (syscall_n)
 	{
 	case SYS_HALT:

@@ -73,8 +73,7 @@ initd (void *f_name) {
    supplemental_page_table_init (&thread_current ()->spt);
 #endif
    process_init ();
-
-   if (process_exec (f_name) < 0)
+   if (process_exec(f_name) < 0)
       PANIC("Fail to launch initd\n");
    NOT_REACHED ();
 }
@@ -460,11 +459,12 @@ load (const char *file_name, struct intr_frame *if_) {
       argc++;
    }
    file = filesys_open(file_name);
-   if (file == NULL) {
+   if (file == NULL)
+   {
       printf ("load: %s: open failed\n", file_name);
       goto done;
    }
-   
+
    /* Read and verify executable header. */
    if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
          || memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
@@ -751,10 +751,10 @@ lazy_load_segment (struct page *page, void *aux) {
 	struct file * file = load_segment_passing_args->file; 
 	size_t page_read_bytes = load_segment_passing_args->page_read_bytes;
 	size_t page_zero_bytes = load_segment_passing_args->page_zero_bytes;
-   off_t pos = load_segment_passing_args->pos;
+   off_t ofs = load_segment_passing_args->ofs;
    
    //file pos값 설정
-   file_seek(file, pos);
+   file_seek(file, ofs);
 
 	/* Load this page. */
 	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
@@ -788,8 +788,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
    ASSERT (pg_ofs (upage) == 0);
    ASSERT (ofs % PGSIZE == 0);
 
-   file_seek(file, ofs);
-   off_t pos = file->pos;
+   // file_seek(file, ofs);
+   // off_t pos = file->ofs;
    while (read_bytes > 0 || zero_bytes > 0) {
       /* Do calculate how to fill this page.
        * We will read PAGE_READ_BYTES bytes from FILE
@@ -801,7 +801,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       // lazy_load_segment를 위한 AUX값을 세팅해 줘라
 		struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
 		aux->file= file;
-      aux->pos = pos;
+      aux->ofs = ofs;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
       if (!vm_alloc_page_with_initializer (VM_ANON, upage,
@@ -812,7 +812,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
 
-      pos += page_read_bytes;
+      ofs += page_read_bytes;
    }
    return true;
 }
@@ -827,11 +827,14 @@ setup_stack (struct intr_frame *if_) {
     * TODO: If success, set the rsp accordingly.
     * TODO: You should mark the page is stack. */
    /* TODO: Your code goes here */
-   success = vm_claim_page(stack_bottom);
+   if (vm_alloc_page(VM_ANON, stack_bottom, true)){
+      success = vm_claim_page(stack_bottom);
+   }
    // 비트 마킹하기
-   if (success)
+   if (success){
       if_->rsp = USER_STACK;
-      success = true;
+      thread_current()->stack_bottom = stack_bottom;
+   }
    return success;
 }
 

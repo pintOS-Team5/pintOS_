@@ -120,6 +120,8 @@ struct thread
 	struct list_elem elem;              /* List element. */
 	struct list child_list;
 	struct list donations;
+	void *stack_pointer;
+	void *stack_bottom;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

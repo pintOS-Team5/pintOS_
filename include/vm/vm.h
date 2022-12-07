@@ -42,7 +42,7 @@ struct thread;
 
 struct load_segment_passing_args{
 	struct file* file;
-	off_t pos;
+	off_t ofs;
 	size_t page_read_bytes;
 	size_t page_zero_bytes;
 };
