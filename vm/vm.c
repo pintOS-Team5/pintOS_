@@ -72,6 +72,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* 페이지를 생성하고 VM 유형에 따라 초기값을 가져온 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다. 
 			uninit_new를 호출한 후 필드를 수정해야 합니다. 페이지를 spt에 삽입합니다.*/
 		new_page = (struct page *)malloc(sizeof(struct page));
+		new_page->writable = writable;
+		new_page->vm_type = VM_TYPE(VM_UNINIT);
+
 		switch (VM_TYPE(type))
 		{
 		case VM_ANON:
@@ -96,7 +99,7 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page *p = NULL;
   	struct hash_elem *e = NULL;
 	struct page page;
-	page.va = va;
+	page.va = pg_round_down(va);
 
 	e = hash_find (&spt->hash, &page.hash_elem);
 	if (e)
@@ -300,6 +303,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	lock_init(&spt->spt_lock);
 }
 
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
@@ -307,17 +311,37 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 	struct hash_iterator i;
    	hash_first (&i, &src->hash);
    	while (hash_next (&i))
-   	{
+   	{	
 		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
-		vm_claim_page(sp->va);
-		struct page *dp = spt_find_page(dst, sp->va);
-		memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
+		vm_initializer *init = NULL;
+		// 부모 page가 UNINIT
+		// if( sp->frame == NULL){
+		switch (VM_TYPE(sp->vm_type))
+		{
+		case VM_UNINIT:
+			init = sp->uninit.init;
+			struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
+			memcpy(aux, sp->uninit.aux, sizeof(struct load_segment_passing_args));
+			vm_alloc_page_with_initializer(sp->uninit.type, sp->va, sp->writable, init, aux);
+			break;
+		
+		// 부모 page가 ANON/FILE
+		case VM_ANON:
+			vm_claim_page(sp->va);
+			struct page *dp = spt_find_page(dst, sp->va);
+			memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
+			break;
+		}
+		
 	}
 	return true;
 }
 
 void page_free_helper(struct hash_elem *e, void *aux){
 	struct page *p= hash_entry(e, struct page, hash_elem);
+	if (p->frame){
+		free(p->frame);
+	}
 	free(p);
 }
 
@@ -327,6 +351,7 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	hash_clear(&spt->hash, page_free_helper);
+
 }
 
 
