@@ -4,6 +4,9 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
+#include "lib/stdio.h"
+
+struct frame_table frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -17,6 +20,16 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+
+	frame_init();
+}
+
+unsigned frame_hash (const struct hash_elem *f_, void *aux UNUSED);
+bool frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+
+frame_init(void) {
+	hash_init(&frame_table.hash, frame_hash, frame_less, NULL);
+	lock_init(&frame_table.ft_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -85,9 +98,7 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	struct page page;
 	page.va = va;
 
-	lock_acquire(&spt->spt_lock);
-  	e = hash_find (&spt->hash, &page.hash_elem);
-	lock_release(&spt->spt_lock);
+	e = hash_find (&spt->hash, &page.hash_elem);
 	if (e)
 		p = hash_entry(e, struct page, hash_elem);
 	return p;
@@ -99,10 +110,8 @@ spt_insert_page (struct supplemental_page_table *spt,
 		struct page *page ) {
 	int succ = false;
 	/* TODO: Fill this function. */
-	lock_acquire(&spt->spt_lock);
 	if (hash_insert(&spt->hash, &page->hash_elem) == NULL)
 		succ = true;
-	lock_release(&spt->spt_lock);
 	return succ;
 }
 
@@ -111,6 +120,37 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	vm_dealloc_page (page);
 	return true;
 }
+
+
+/* Find VA from spt and return page. On error, return NULL. */
+struct frame *
+ft_find_page (struct frame_table *ft UNUSED, void *kva UNUSED) {
+	/* TODO: Fill this function. */
+	struct frame *f = NULL;
+  	struct hash_elem *e = NULL;
+	struct frame frame;
+	frame.kva = kva;
+
+  	e = hash_find (&ft->hash, &frame.hash_elem);
+	if (e)
+		f = hash_entry(e, struct frame, hash_elem);
+	return f;
+}
+
+/* Insert PAGE into spt with validation. */
+bool
+ft_insert_page (struct frame_table *ft,
+		struct frame *frame ) {
+	int succ = false;
+	/* TODO: Fill this function. */
+	if (hash_insert(&ft->hash, &frame->hash_elem) == NULL)
+		succ = true;
+	return succ;
+}
+
+
+
+
 
 /* Get the struct frame, that will be evicted. */
 static struct frame *
@@ -237,6 +277,22 @@ page_less (const struct hash_elem *a_,
   return a->va < b->va;
 }
 
+/* Returns a hash value for page p. */
+unsigned
+frame_hash (const struct hash_elem *f_, void *aux UNUSED) {
+  const struct frame *f = hash_entry (f_, struct frame, hash_elem);
+  return hash_bytes (&f->kva, sizeof f->kva);
+}
+
+/* Returns true if page a precedes page b. */
+bool
+frame_less (const struct hash_elem *a_,
+           const struct hash_elem *b_, void *aux UNUSED) {
+  const struct frame *a = hash_entry (a_, struct frame, hash_elem);
+  const struct frame *b = hash_entry (b_, struct frame, hash_elem);
+
+  return a->kva < b->kva;
+}
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
@@ -248,6 +304,21 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	struct hash_iterator i;
+   	hash_first (&i, &src->hash);
+   	while (hash_next (&i))
+   	{
+		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
+		vm_claim_page(sp->va);
+		struct page *dp = spt_find_page(dst, sp->va);
+		memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
+	}
+	return true;
+}
+
+void page_free_helper(struct hash_elem *e, void *aux){
+	struct page *p= hash_entry(e, struct page, hash_elem);
+	free(p);
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -255,6 +326,7 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear(&spt->hash, page_free_helper);
 }
 
 
