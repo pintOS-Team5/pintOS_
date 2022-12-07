@@ -51,12 +51,6 @@ uninit_initialize (struct page *page, void *kva) {
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
 
-	// stack최초 할당 예외처리
-	if(init == NULL || aux == NULL){
-		anon_initializer(page, uninit->type, kva);
-		return true;
-	}
-
 	/* TODO: You may need to fix this function. */
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
