@@ -266,6 +266,10 @@ syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
 	thread_current()->stack_pointer = f->rsp;
+	// printf("is_kv : %d\n", is_kernel_vaddr(f->rsp));
+	// ASSERT(is_kernel_vaddr(f->rsp));
+	// ASSERT(is_user_vaddr(f->rsp));
+
 	switch (syscall_n)
 	{
 	case SYS_HALT:
@@ -317,21 +321,21 @@ syscall_handler (struct intr_frame *f) {
 }
 
 
-void
-printf_hash2(struct supplemental_page_table *spt){
-	struct hash *h = &spt->hash;
-	struct hash_iterator i;
-   	hash_first (&i, h);
-	printf("===== hash 순회시작 =====\n");
-   	while (hash_next (&i))
-   	{
-		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-		if (p->frame == NULL){
-			printf("va: %X, p_addr : %X\n",p->va, p);
-		}
-		else {
-			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
-		}
-   	}
-	printf("===== hash 순회종료 =====\n");
-}
+// void
+// printf_hash2(struct supplemental_page_table *spt){
+// 	struct hash *h = &spt->hash;
+// 	struct hash_iterator i;
+//    	hash_first (&i, h);
+// 	printf("===== hash 순회시작 =====\n");
+//    	while (hash_next (&i))
+//    	{
+// 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+// 		if (p->frame == NULL){
+// 			printf("va: %X, p_addr : %X\n",p->va, p);
+// 		}
+// 		else {
+// 			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+// 		}
+//    	}
+// 	printf("===== hash 순회종료 =====\n");
+// }

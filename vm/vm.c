@@ -72,8 +72,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* 페이지를 생성하고 VM 유형에 따라 초기값을 가져온 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다. 
 			uninit_new를 호출한 후 필드를 수정해야 합니다. 페이지를 spt에 삽입합니다.*/
 		new_page = (struct page *)malloc(sizeof(struct page));
-		new_page->writable = writable;
-		new_page->vm_type = VM_TYPE(VM_UNINIT);
 
 		switch (VM_TYPE(type))
 		{
@@ -87,6 +85,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		if (!spt_insert_page(spt, new_page))
 			goto err;
 	}
+	new_page->writable = writable;
+	new_page->vm_type = VM_TYPE(VM_UNINIT);
+
 	return true;
 err:
 	return false;
@@ -199,10 +200,8 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-	if (vm_alloc_page(VM_ANON, addr, true)){//할당받고
-		vm_claim_page(addr);//frame이랑 연결하고
-		thread_current()->stack_bottom -= PGSIZE;//한 페이지만큼 stack bottom 내려주고
-	}
+	vm_claim_page(addr);//frame이랑 연결하고
+	thread_current()->stack_bottom -= PGSIZE;//한 페이지만큼 stack bottom 내려주고
 }
 
 /* Handle the fault on write_protected page */
@@ -218,27 +217,27 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-	// 현재 항상 bogus fault로 동
-	// page = spt_find_page(&thread_current()->spt, pg_round_down(addr));
-
-	// if (page != NULL){
-	// 	return vm_do_claim_page (page);
-	// }
 
 	//유저 스페이스를 가리키고 있어야 함
 	if (is_kernel_vaddr(addr))
 		return false;
 
+	page = spt_find_page(spt, pg_round_down(addr));
+	if (page != NULL) {
+		return vm_do_claim_page(page);
+	}
+
 	void * stack_pointer = f->rsp;
+	// printf("f->rsp : %X\n", f->rsp);
 	//커널 스택을 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
 	if (is_kernel_vaddr(f->rsp))
 		stack_pointer = thread_current()->stack_pointer;
+		// printf("thread stack : %X\n", stack_pointer);
 
-	if (vm_claim_page(addr))
-		return true;
+	// printf("s_p : %X, addr : %X\n", stack_pointer, addr);
 	// frame과 연결이 되지 않으면
 	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && stack_pointer - 8 <= addr){
-		vm_stack_growth(thread_current ()->stack_bottom - PGSIZE);
+		vm_stack_growth(addr);
 		return true;
 	}
 	return false;
@@ -281,7 +280,6 @@ vm_do_claim_page (struct page *page) {
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// 페이지 테이블 항목을 삽입하여 페이지의 VA를 프레임의 PA에 매핑합니다.
 	pml4_set_page(curr->pml4, page->va, frame->kva, true);
-
 	return swap_in (page, frame->kva);
 }
 
@@ -332,9 +330,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 	struct hash_iterator i;
    	hash_first (&i, &src->hash);
+	// printf_hash(src);
    	while (hash_next (&i))
    	{	
 		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
+		// printf("type: %d", sp->vm_type);
 		vm_initializer *init = NULL;
 		// 부모 page가 UNINIT
 		// if( sp->frame == NULL){
@@ -377,6 +377,17 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 }
 
 
+bool 
+is_stack(struct page * page){
+	if(page->vm_type == VM_STACK_MARKER){
+		return true;
+	}
+	else{
+		return false;
+	}
+}
+
+
 void
 printf_hash(struct supplemental_page_table *spt){
 	struct hash *h = &spt->hash;
@@ -387,10 +398,10 @@ printf_hash(struct supplemental_page_table *spt){
    	{
 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
 		if (p->frame == NULL){
-			printf("va: %X, p_addr : %X\n",p->va, p);
+			printf("va: %X, writable : %X\n",p->va, p->writable);
 		}
 		else {
-			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+			printf("va: %X, kva : %X, writable : %X\n",p->va,p->frame->kva, p->writable);
 		}
    	}
 	printf("===== hash 순회종료 =====\n");

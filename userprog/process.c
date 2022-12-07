@@ -477,58 +477,59 @@ load (const char *file_name, struct intr_frame *if_) {
       goto done;
    }
 
-   /* Read program headers. */
-   file_ofs = ehdr.e_phoff;
-   for (i = 0; i < ehdr.e_phnum; i++) {
-      struct Phdr phdr;
+/* Read program headers. */
+	file_ofs = ehdr.e_phoff; 
+	for (i = 0; i < ehdr.e_phnum; i++) {
+		struct Phdr phdr;
 
-      if (file_ofs < 0 || file_ofs > file_length (file))
-         goto done;
-      file_seek (file, file_ofs);
+		if (file_ofs < 0 || file_ofs > file_length (file))
+			goto done;
+		file_seek (file, file_ofs);
 
-      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
-         goto done;
-      file_ofs += sizeof phdr;
-      switch (phdr.p_type) {
-         case PT_NULL:
-         case PT_NOTE:
-         case PT_PHDR:
-         case PT_STACK:
-         default:
-            /* Ignore this segment. */
-            break;
-         case PT_DYNAMIC:
-         case PT_INTERP:
-         case PT_SHLIB:
-            goto done;
-         case PT_LOAD:
-            if (validate_segment (&phdr, file)) {
-               bool writable = (phdr.p_flags && PF_W) != 0;
-               uint64_t file_page = phdr.p_offset & ~PGMASK; 
-					uint64_t mem_page = phdr.p_vaddr & ~PGMASK; // 테이블 정보(주소 앞에부터 ~12번째) (유저 가상 테이블)
-					uint64_t page_offset = phdr.p_vaddr & PGMASK; // 주소 뒤에 11자리  (유저 가상 테이블 오프셋)
-               uint32_t read_bytes, zero_bytes;
-               if (phdr.p_filesz > 0) {
-                  /* Normal segment.
-                   * Read initial part from disk and zero the rest. */
-                  read_bytes = page_offset + phdr.p_filesz;
-                  zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
-                        - read_bytes);
-               } else {
-                  /* Entirely zero.
-                   * Don't read anything from disk. */
-                  read_bytes = 0;
-                  zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
-               }
-               if (!load_segment (file, file_page, (void *) mem_page,
-                        read_bytes, zero_bytes, writable))
-                  goto done;
-            }
-            else
-               goto done;
-            break;
-      }
-   }
+		if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
+			goto done;
+		file_ofs += sizeof phdr;
+		switch (phdr.p_type) {
+			case PT_NULL:
+			case PT_NOTE:
+			case PT_PHDR:
+			case PT_STACK:
+			default:
+				/* Ignore this segment. */
+				break;
+			case PT_DYNAMIC:
+			case PT_INTERP:
+			case PT_SHLIB:
+				goto done;
+			case PT_LOAD:
+				if (validate_segment (&phdr, file)) {
+					bool writable = (phdr.p_flags & PF_W) != 0;
+					uint64_t file_page = phdr.p_offset & ~PGMASK; 
+					uint64_t mem_page = phdr.p_vaddr & ~PGMASK; // 테이블 정보(주소 앞에부터 ~12번째)
+					uint64_t page_offset = phdr.p_vaddr & PGMASK; // 주소 뒤에 11자리 
+					uint32_t read_bytes, zero_bytes;
+					if (phdr.p_filesz > 0) {
+						/* Normal segment.
+						 * Read initial part from disk and zero the rest. */
+						read_bytes = page_offset + phdr.p_filesz;
+						zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
+								- read_bytes);
+						// printf("page_offset: %d, filesz:%d, memsz:%d, r_b: %d, z_b: %d\n", page_offset, phdr.p_filesz, phdr.p_memsz, read_bytes, zero_bytes);
+					} else {
+						/* Entirely zero.
+						 * Don't read anything from disk. */
+						read_bytes = 0;
+						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
+					}
+					if (!load_segment (file, file_page, (void *) mem_page,
+								read_bytes, zero_bytes, writable)) 
+						goto done;
+				}
+				else
+					goto done;
+				break;
+		}
+	}
 
    /* Set up stack. */
    if (!setup_stack (if_))
@@ -752,7 +753,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	size_t page_read_bytes = load_segment_passing_args->page_read_bytes;
 	size_t page_zero_bytes = load_segment_passing_args->page_zero_bytes;
    off_t ofs = load_segment_passing_args->ofs;
-   
+
    //file pos값 설정
    file_seek(file, ofs);
 
@@ -763,6 +764,10 @@ lazy_load_segment (struct page *page, void *aux) {
 		return false;
 	}
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+   // writable 재설정
+   // pml4_clear_page(thread_current()->pml4, page->va);
+   // printf("va : %X, writable :%d\n", page->va, page->writable); 
+   pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->writable); 
 	free(aux);
 	return true;
 }
@@ -827,9 +832,13 @@ setup_stack (struct intr_frame *if_) {
     * TODO: If success, set the rsp accordingly.
     * TODO: You should mark the page is stack. */
    /* TODO: Your code goes here */
+
    if (vm_alloc_page(VM_ANON, stack_bottom, true)){
       success = vm_claim_page(stack_bottom);
+      struct page * stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
+      stack_page->vm_type+=VM_STACK_MARKER;
    }
+
    // 비트 마킹하기
    if (success){
       if_->rsp = USER_STACK;
