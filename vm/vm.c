@@ -304,10 +304,8 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
-	struct hash *dh = &dst->hash;
-	struct hash *sh = &src->hash;
 	struct hash_iterator i;
-   	hash_first (&i, sh);
+   	hash_first (&i, &src->hash);
    	while (hash_next (&i))
    	{
 		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
@@ -318,11 +316,17 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 	return true;
 }
 
+void page_free_helper(struct hash_elem *e, void *aux){
+	struct page *p= hash_entry(e, struct page, hash_elem);
+	free(p);
+}
+
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear(&spt->hash, page_free_helper);
 }
 
 
