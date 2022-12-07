@@ -25,6 +25,7 @@
         "stdbool.h": "c",
         "malloc.h": "c",
         "vaddr.h": "c",
-        "vm.h": "c"
+        "vm.h": "c",
+        "loader.h": "c"
     }
 }
