@@ -68,6 +68,12 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct hash_elem hash_elem;
+};
+
+struct frame_table{
+    struct hash hash;
+    struct lock ft_lock;
 };
 
 /* The function table for page operations.
