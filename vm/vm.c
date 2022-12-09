@@ -217,7 +217,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
 	//유저 스페이스를 가리키고 있어야 함
 	if (is_kernel_vaddr(addr))
 		return false;
@@ -227,21 +226,41 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		return vm_do_claim_page(page);
 	}
 
+	// 유저 주소를 가르키고 있으면 tf->rsp 그대로 사용
 	void * stack_pointer = f->rsp;
-	// printf("f->rsp : %X\n", f->rsp);
-	//커널 스택을 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
-	if (is_kernel_vaddr(f->rsp))
-		stack_pointer = thread_current()->stack_pointer;
-		// printf("thread stack : %X\n", stack_pointer);
+	//커널 주소를 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
+	if (is_kernel_vaddr(f->rsp)) 
+		stack_pointer = thread_current()->stack_pointer; 
+	
+	// printf("fault==========\n");
+	// printf("fault_addr : %X stack_pointer :%X f->rsp : %X thread_current()->stack_pointer : %X\n", addr, stack_pointer, f->rsp, thread_current()->stack_pointer);
 
-	// printf("s_p : %X, addr : %X\n", stack_pointer, addr);
 	// frame과 연결이 되지 않으면
-	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && stack_pointer - 8 <= addr){
+	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && addr >= pg_round_down(stack_pointer)){
 		vm_stack_growth(addr);
 		return true;
 	}
+
 	return false;
 }
+
+
+// bool
+// is_vm_stack(void* addr){
+// 	printf("stack_growth start\n");
+// 	struct intr_frame *f = &thread_current()->tf;
+// 		printf("right : %d\n", addr <= USER_STACK && addr >= USER_STACK - 0x100000 && addr >= pg_round_down(f->rsp));
+
+// 	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000 && addr >= pg_round_down(f->rsp)){
+// 		printf("stack_growth_work");
+// 	// if (addr <= USER_STACK && addr >= USER_STACK - 0x100000){
+// 		return true;
+// 	}
+// 	else{
+// 		return false;
+// 	}
+// }
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
@@ -250,6 +269,9 @@ vm_dealloc_page (struct page *page) {
 	destroy (page);
 	free (page);
 }
+
+
+
 
 /* Claim the page that allocate on VA. */
 // va를 할당할 페이지를 요청합니다.
@@ -351,10 +373,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		case VM_ANON:
 			vm_claim_page(sp->va);
 			struct page *dp = spt_find_page(dst, sp->va);
+			dp->writable = sp->writable;
 			memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
 			break;
 		}
-		
 	}
 	return true;
 }

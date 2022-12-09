@@ -49,18 +49,31 @@ syscall_init (void) {
 	lock_init(&filesys_lock);
 }
 
+
+/*
+* *유효주소 여부 확인
+* 유저가상주소 할당 OR user stack범위내부
+*/
 bool
 check_valid_addr(void * addr){
 	struct thread *curr = thread_current();
+	struct page *page;
+	// printf("====check_valid_addr\n");
+	// printf("fault_addr : %X f->rsp : %X thread_current()->stack_pointer : %X\n", addr, curr->tf.rsp, thread_current()->stack_pointer);
 	if ((addr
 			&& is_user_vaddr(addr)
-			&& (spt_find_page(&curr->spt, addr)!= NULL)))
-		  	// && pml4_get_page(curr->pml4, addr)))
+			&& ( (page = spt_find_page(&curr->spt, addr)) != NULL) 
+				||(addr <= USER_STACK && addr >= USER_STACK - 0x100000  && addr >= pg_round_down(curr->stack_pointer)) )){
 		return true;
+	}
 	else
 		return false;
 }
 
+/*
+* *버퍼 유효성 확인
+* writable체크(가상주소만, 스택X), 유효주소여부확인
+*/
 bool
 check_valid_buffer(void* buffer, unsigned size){
 	// offset 정렬
@@ -70,10 +83,15 @@ check_valid_buffer(void* buffer, unsigned size){
 		buffer = pg_round_down(buffer);
 	}
 	ASSERT(pg_ofs(buffer) == 0); //정렬 여부 확인
-
 	while(1){
+		// 유효주소 확인
 		if (!check_valid_addr(buffer))
 			return false;
+		// writable 확인
+		struct page* page = spt_find_page(&curr->spt, buffer);
+		if(page!= NULL && page->writable == false){
+			return false;
+		}
 		if(size < PGSIZE){
 			break;
 		}
@@ -183,7 +201,6 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 		thread_current()->my_exit_code = -1;
 		thread_exit();
 	}
-	
 	struct file *f = curr->fd_table[fd];
 	lock_acquire(&filesys_lock);
 	result = file_read(f, buffer, size);
@@ -194,11 +211,13 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 int sys_write_handler(int fd, void *buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd == 1)
+	// printf("write_handler,fd: %d buffer : %X\n",fd, buffer);
+	if (fd == 1 && (check_valid_buffer(buffer, size))) // 이부분 확인 필요!!
 	{
 		putbuf(buffer, size);
 		return size;
 	}
+
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || !(check_valid_buffer(buffer, size))) 
 	{
 		curr->my_exit_code = -1;
@@ -265,11 +284,10 @@ void
 syscall_handler (struct intr_frame *f) { 
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
-	thread_current()->stack_pointer = f->rsp;
+	thread_current()->stack_pointer = f->rsp; 
 	// printf("is_kv : %d\n", is_kernel_vaddr(f->rsp));
 	// ASSERT(is_kernel_vaddr(f->rsp));
 	// ASSERT(is_user_vaddr(f->rsp));
-
 	switch (syscall_n)
 	{
 	case SYS_HALT:
