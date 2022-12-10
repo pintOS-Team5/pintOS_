@@ -38,13 +38,32 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
+	printf("swap in\n");
 	struct file_page *file_page UNUSED = &page->file;
+	if(!file_read_at(file_page->file, kva, file_page->page_read_bytes, file_page->offset) == file_page->page_read_bytes)
+		return false;
+	page->swap_out_yn = false;
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
+	// printf("swap out!!!!\n");
+	struct thread* curr = thread_current();
 	struct file_page *file_page UNUSED = &page->file;
+	spt_insert_swap(&curr->spt, page);
+
+	// printf_hash_swap(&curr->spt);
+
+	if (pml4_is_dirty(curr->pml4, page->va) && page->writable==true){
+		file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+	}
+	pml4_clear_page(thread_current()->pml4, page->va);
+	page->swap_out_yn = true;
+	page->frame = NULL;
+	// printf("swap out end!!!!\n");
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -118,7 +137,7 @@ void
 do_munmap (void *addr) {
 	void* write_addr = addr;
 	struct page* page = NULL;
-	// printf("do_munmap :%X\n", addr);
+	printf("do_munmap :%X\n", addr);
 	while(1){
 		page = spt_find_page(&thread_current()->spt, write_addr);
 		if(page == NULL){
@@ -131,6 +150,7 @@ do_munmap (void *addr) {
 					
 		if(page->vm_type == VM_TYPE(VM_FILE)){
 			// file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+			// printf_hash_page(&thread_current()->spt);
 			spt_remove_page(&thread_current()->spt, page); 
 
 			// printf("page->va :%X", page->va);

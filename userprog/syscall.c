@@ -404,7 +404,7 @@ syscall_handler (struct intr_frame *f) {
 
 void
 printf_hash2(struct supplemental_page_table *spt){
-	struct hash *h = &spt->hash;
+	struct hash *h = &spt->page_hash;
 	struct hash_iterator i;
    	hash_first (&i, h);
 	printf("===== hash 순회시작 =====\n");

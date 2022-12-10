@@ -47,14 +47,6 @@ struct load_segment_passing_args{
 	size_t page_zero_bytes;
 };
 
-// struct mmap_passing_args{
-// 	void* addr;
-// 	size_t length;
-// 	int writable;
-// 	struct file* file;
-// 	off_t offset;
-// };
-
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
@@ -68,6 +60,7 @@ struct page {
 	struct hash_elem hash_elem;
 	bool writable;
 	enum vm_type vm_type;
+	bool swap_out_yn; // todo! swap_slot관리
 	
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -85,12 +78,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-	struct hash_elem hash_elem;
-};
-
-struct frame_table{
-    struct hash hash;
-    struct lock ft_lock;
+	struct list_elem list_elem;
 };
 
 /* The function table for page operations.
@@ -114,8 +102,8 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	// struct page *pages[100];
-	struct hash hash;
-	// struct lock spt_lock;
+	struct hash page_hash;
+	struct hash swap_hash;
 };
 
 #include "threads/thread.h"
@@ -127,8 +115,14 @@ struct page *spt_find_page (struct supplemental_page_table *spt,
 		void *va);
 bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
+bool spt_insert_swap (struct supplemental_page_table *spt, struct page *page);
+void spt_remove_swap (struct supplemental_page_table *spt, struct page *page);
+
+bool set_frame_to_ft (struct list *frame_list, struct frame *frame);
+struct frame *get_frame_from_ft (struct list *frame_list);
 
 void vm_init (void);
+void frame_init(void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
 		bool write, bool not_present);
 
@@ -142,9 +136,9 @@ enum vm_type page_get_type (struct page *page);
 
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+bool is_stack_page(struct page * page);
 
-bool is_stack(struct page *);
-
-void printf_hash(struct supplemental_page_table *spt);
-
+void printf_hash_page(struct supplemental_page_table *spt);
+void printf_hash_swap(struct supplemental_page_table *spt);
+void printf_list(struct list *list);
 #endif  /* VM_VM_H */

@@ -41,9 +41,6 @@
 /* Page-map-level-4 with kernel mappings only. */
 uint64_t *base_pml4;
 
-#ifdef VM
-struct frame_table ft;
-#endif
 
 #ifdef FILESYS
 /* -f: Format the file system? */
