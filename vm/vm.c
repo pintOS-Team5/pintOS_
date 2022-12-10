@@ -127,31 +127,31 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return true;
 }
 
-/* Find VA from spt and return page. On error, return NULL. */
-struct page *
-spt_find_swap (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	/* TODO: Fill this function. */
-	struct page *p = NULL;
-  	struct hash_elem *e = NULL;
-	struct page page;
-	page.va = pg_round_down(va);
+// /* Find VA from spt and return page. On error, return NULL. */
+// struct page *
+// spt_find_swap (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
+// 	/* TODO: Fill this function. */
+// 	struct page *p = NULL;
+//   	struct hash_elem *e = NULL;
+// 	struct page page;
+// 	page.va = pg_round_down(va);
 
-	e = hash_find (&spt->swap_hash, &page.hash_elem);
-	if (e)
-		p = hash_entry(e, struct page, hash_elem);
-	return p;
-}
+// 	e = hash_find (&spt->swap_hash, &page.hash_elem);
+// 	if (e)
+// 		p = hash_entry(e, struct page, hash_elem);
+// 	return p;
+// }
 
-/* Insert PAGE into spt with validation. */
-bool
-spt_insert_swap (struct supplemental_page_table *spt,
-		struct page *page ) {
-	int succ = false;
-	/* TODO: Fill this function. */
-	if (hash_insert(&spt->swap_hash, &page->hash_elem) == NULL)
-		succ = true;
-	return succ;
-}
+// /* Insert PAGE into spt with validation. */
+// bool
+// spt_insert_swap (struct supplemental_page_table *spt,
+// 		struct page *page ) {
+// 	int succ = false;
+// 	/* TODO: Fill this function. */
+// 	if (hash_insert(&spt->swap_hash, &page->hash_elem) == NULL)
+// 		succ = true;
+// 	return succ;
+// }
 
 
 // frame 가져오기 (list_pop_front)
@@ -370,7 +370,7 @@ page_less (const struct hash_elem *a_,
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init(&spt->page_hash, page_hash, page_less, NULL);
-	hash_init(&spt->swap_hash, page_hash, page_less, NULL);
+	// hash_init(&spt->swap_hash, page_hash, page_less, NULL);
 	// lock_init(&spt->spt_lock);
 }
 
@@ -470,24 +470,24 @@ printf_hash_page(struct supplemental_page_table *spt){
 	printf("===== hash 순회종료 =====\n");
 }
 
-void
-printf_hash_swap(struct supplemental_page_table *spt){
-	struct hash *h = &spt->swap_hash;
-	struct hash_iterator i;
-   	hash_first (&i, h);
-	printf("===== hash 순회시작 =====\n");
-   	while (hash_next (&i))
-   	{
-		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-		if (p->frame == NULL){
-			printf("va: %X, writable : %X\n",p->va, p->writable);
-		}
-		else {
-			printf("va: %X, kva : %X, writable : %X\n",p->va,p->frame->kva, p->writable);
-		}
-   	}
-	printf("===== hash 순회종료 =====\n");
-}
+// void
+// printf_hash_swap(struct supplemental_page_table *spt){
+// 	struct hash *h = &spt->swap_hash;
+// 	struct hash_iterator i;
+//    	hash_first (&i, h);
+// 	printf("===== hash 순회시작 =====\n");
+//    	while (hash_next (&i))
+//    	{
+// 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+// 		if (p->frame == NULL){
+// 			printf("va: %X, writable : %X\n",p->va, p->writable);
+// 		}
+// 		else {
+// 			printf("va: %X, kva : %X, writable : %X\n",p->va,p->frame->kva, p->writable);
+// 		}
+//    	}
+// 	printf("===== hash 순회종료 =====\n");
+// }
 
 // elem 리스트 프린트 함수 
 void 

@@ -103,7 +103,7 @@ struct page_operations {
 struct supplemental_page_table {
 	// struct page *pages[100];
 	struct hash page_hash;
-	struct hash swap_hash;
+	// struct hash swap_hash;
 };
 
 #include "threads/thread.h"

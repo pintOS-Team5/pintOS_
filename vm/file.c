@@ -52,7 +52,7 @@ file_backed_swap_out (struct page *page) {
 	// printf("swap out!!!!\n");
 	struct thread* curr = thread_current();
 	struct file_page *file_page UNUSED = &page->file;
-	spt_insert_swap(&curr->spt, page);
+	// spt_insert_swap(&curr->spt, page);
 
 	// printf_hash_swap(&curr->spt);
 
@@ -137,7 +137,7 @@ void
 do_munmap (void *addr) {
 	void* write_addr = addr;
 	struct page* page = NULL;
-	printf("do_munmap :%X\n", addr);
+	// printf("do_munmap :%X\n", addr);
 	while(1){
 		page = spt_find_page(&thread_current()->spt, write_addr);
 		if(page == NULL){
