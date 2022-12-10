@@ -115,7 +115,7 @@ struct page_operations {
 struct supplemental_page_table {
 	// struct page *pages[100];
 	struct hash hash;
-	struct lock spt_lock;
+	// struct lock spt_lock;
 };
 
 #include "threads/thread.h"

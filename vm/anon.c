@@ -30,6 +30,8 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	page->operations = &anon_ops;
 	page->vm_type = VM_TYPE(type);
+	// printf("anon_initializer\n");  
+
 
 	struct anon_page *anon_page = &page->anon;
 }
@@ -50,4 +52,7 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	pml4_clear_page(thread_current()->pml4, page->va);
+	free(page->frame);
+
 }
