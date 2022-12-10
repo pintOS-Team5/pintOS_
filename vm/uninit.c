@@ -45,15 +45,38 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
+	// printf("uninit initialzier\n"); 
 	struct uninit_page *uninit = &page->uninit;
-
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
+	// printf("va: %X, uninit->type: %d\n", page->va, uninit->type);
 
-	/* TODO: You may need to fix this function. */
+
+	// if(VM_TYPE(uninit->type) == VM_ANON){
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
+	// }	
+
+	// else if(VM_TYPE(uninit->type) == VM_FILE){
+	// 	// struct file_page* file_page = (struct file_page*)aux;
+	// 	// void *addr = mmap_passing_args->addr;
+	// 	// size_t length = mmap_passing_args->length;
+	// 	// int writable = mmap_passing_args->writable;
+	// 	// struct file *file = mmap_passing_args->file;
+	// 	// off_t offset = mmap_passing_args->offset;
+	// 	struct uninit_page *uninit_mal = (struct uninit_page *) malloc(sizeof(struct uninit_page));
+	// 	memcpy(uninit_mal, uninit, sizeof(struct uninit_page));
+	// 	memcpy(&page->file, aux, sizeof(struct file_page));
+	// 	free(aux);
+	// 	// printf("page->file->file:%X, page->file->offset : %d, r_b : %d, z_b: %d, is_start: %d\n", page->file.file, page->file.offset, page->file.page_read_bytes, page->file.page_zero_bytes, page->file.is_start);
+
+	// 	uninit_mal->page_initializer(page, VM_FILE, kva);
+	// 	free(uninit_mal);
+	// 	return true;
+	// 	// return uninit->page_initializer (page, VM_FILE, kva) &&
+	// 	// (init ? init (page, aux) : true);
+	// }
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted

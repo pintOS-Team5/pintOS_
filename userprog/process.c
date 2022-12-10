@@ -760,14 +760,9 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* Load this page. */
 	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
 		palloc_free_page (page->frame->kva);
-      
 		return false;
 	}
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
-   // writable 재설정
-   // pml4_clear_page(thread_current()->pml4, page->va);
-   // printf("va : %X, writable :%d\n", page->va, page->writable); 
-   pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, page->writable); 
 	free(aux);
 	return true;
 }
@@ -833,11 +828,9 @@ setup_stack (struct intr_frame *if_) {
     * TODO: You should mark the page is stack. */
    /* TODO: Your code goes here */
 
-   if (vm_alloc_page(VM_ANON, stack_bottom, true)){
-      success = vm_claim_page(stack_bottom);
-      struct page * stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
-      stack_page->vm_type+=VM_STACK_MARKER;
-   }
+   success = vm_claim_page(stack_bottom);
+   struct page * stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
+   stack_page->vm_type+=VM_STACK_MARKER;
 
    // 비트 마킹하기
    if (success){

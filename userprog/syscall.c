@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <syscall-nr.h>
+#include <round.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -93,7 +94,7 @@ check_valid_buffer(void* buffer, unsigned size){
 			return false;
 		}
 		if(size < PGSIZE){
-			break;
+			break; 
 		}
 		buffer += PGSIZE;
 		size -= PGSIZE;
@@ -279,15 +280,46 @@ sys_tell_handler(int fd){
 	lock_release(&filesys_lock);
 }
 
+void *sys_mmap_handler(void* addr, size_t length, int writable, int fd, off_t offset) {
+	printf("mmap_input addr:%X length:%d writable:%d fd:%d offset:%d\n", addr, length, writable, fd, offset);
+	struct thread *curr = thread_current ();
+	struct file **fd_table = curr->fd_table;
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL){
+
+		// || !is_user_vaddr(addr)) {
+		curr->my_exit_code = -1;
+		thread_exit();
+	}
+	if (addr==NULL || length ==0 || pg_ofs(addr)!=0 || pg_ofs(addr)!=0
+		|| spt_find_page(&curr->spt, addr)!=NULL){
+		return NULL;
+	}
+	struct file *file = fd_table[fd];
+	do_mmap(addr, length, writable, file, offset);
+	return addr;
+}
+
+void sys_munmap_handler(void* addr){
+	struct thread *curr = thread_current ();
+	struct page *page = spt_find_page(&curr->spt, addr);
+	// printf("offset :%d, r_b ; %d, z_b : %d, is_start :%d\n", page->file.offset, page->file.page_read_bytes, page->file.page_zero_bytes, page->file.is_start);
+	if (!addr|| !page || VM_TYPE(page->vm_type)!= VM_FILE
+		|| !page->file.is_start){
+		curr->my_exit_code = -1;
+		thread_exit();
+	}
+	do_munmap(addr);
+}
+
+
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) { 
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
 	thread_current()->stack_pointer = f->rsp; 
-	// printf("is_kv : %d\n", is_kernel_vaddr(f->rsp));
-	// ASSERT(is_kernel_vaddr(f->rsp));
-	// ASSERT(is_user_vaddr(f->rsp));
+
 	switch (syscall_n)
 	{
 	case SYS_HALT:
@@ -332,28 +364,32 @@ syscall_handler (struct intr_frame *f) {
 	case SYS_TELL:
 		f->R.rax = sys_tell_handler(f->R.rdi);
 		break;
-		
+	case SYS_MMAP:
+		f->R.rax = sys_mmap_handler(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		sys_munmap_handler(f->R.rdi);
 	default:
 		break;
 	}
 }
 
 
-// void
-// printf_hash2(struct supplemental_page_table *spt){
-// 	struct hash *h = &spt->hash;
-// 	struct hash_iterator i;
-//    	hash_first (&i, h);
-// 	printf("===== hash 순회시작 =====\n");
-//    	while (hash_next (&i))
-//    	{
-// 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-// 		if (p->frame == NULL){
-// 			printf("va: %X, p_addr : %X\n",p->va, p);
-// 		}
-// 		else {
-// 			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
-// 		}
-//    	}
-// 	printf("===== hash 순회종료 =====\n");
-// }
+void
+printf_hash2(struct supplemental_page_table *spt){
+	struct hash *h = &spt->hash;
+	struct hash_iterator i;
+   	hash_first (&i, h);
+	printf("===== hash 순회시작 =====\n");
+   	while (hash_next (&i))
+   	{
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		if (p->frame == NULL){
+			printf("va: %X, p_addr : %X\n",p->va, p);
+		}
+		else {
+			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+		}
+   	}
+	printf("===== hash 순회종료 =====\n");
+}
