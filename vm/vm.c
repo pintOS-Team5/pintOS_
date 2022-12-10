@@ -72,7 +72,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* 페이지를 생성하고 VM 유형에 따라 초기값을 가져온 다음 uninit_new를 호출하여 "uninit" 페이지 구조체를 생성합니다. 
 			uninit_new를 호출한 후 필드를 수정해야 합니다. 페이지를 spt에 삽입합니다.*/
 		new_page = (struct page *)malloc(sizeof(struct page));
-
 		switch (VM_TYPE(type))
 		{
 		case VM_ANON:
@@ -84,9 +83,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 		if (!spt_insert_page(spt, new_page))
 			goto err;
+		new_page->writable = writable;
+		new_page->vm_type = VM_TYPE(VM_UNINIT);
 	}
-	new_page->writable = writable;
-	new_page->vm_type = VM_TYPE(VM_UNINIT);
+	// printf("check va : %X wtb : %d\n", new_page->va, new_page->writable);
 
 	return true;
 err:
@@ -207,6 +207,10 @@ vm_stack_growth (void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp (struct page *page UNUSED) {
+	if (page->writable)
+		return true;
+	else
+		return false;
 }
 
 /* Return true on success */
@@ -217,31 +221,34 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
 	//유저 스페이스를 가리키고 있어야 함
+	// printf("addr: %X, write : %d\n", addr,write);
 	if (is_kernel_vaddr(addr))
 		return false;
-
+	// 유저 주소를 가르키고 있으면 tf->rsp 그대로 사용
+	void * stack_pointer = f->rsp;
+	
+	//커널 주소를 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
+	if (is_kernel_vaddr(f->rsp))
+		stack_pointer = thread_current()->stack_pointer;
 	page = spt_find_page(spt, pg_round_down(addr));
+
 	if (page != NULL) {
+		// // 권한이 읽기인데 쓰려는 경우
+		// if (vm_handle_wp(page) == false && (write == true))
+		// 	return false;
 		return vm_do_claim_page(page);
 	}
 
-	void * stack_pointer = f->rsp;
-	// printf("f->rsp : %X\n", f->rsp);
-	//커널 스택을 가리키고 있으면 syscall_handler에서 직접 thread 구조체에 넣어준 값으로
-	if (is_kernel_vaddr(f->rsp))
-		stack_pointer = thread_current()->stack_pointer;
-		// printf("thread stack : %X\n", stack_pointer);
-
-	// printf("s_p : %X, addr : %X\n", stack_pointer, addr);
 	// frame과 연결이 되지 않으면
-	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && stack_pointer - 8 <= addr){
+	if (addr <= USER_STACK && addr >= USER_STACK - 0x100000  && addr >= pg_round_down(stack_pointer)){
 		vm_stack_growth(addr);
 		return true;
 	}
-	return false;
+	else 
+		return false;
 }
+
 
 /* Free the page.
  * DO NOT MODIFY THIS FUNCTION. */
@@ -251,17 +258,19 @@ vm_dealloc_page (struct page *page) {
 	free (page);
 }
 
+
+
+
 /* Claim the page that allocate on VA. */
 // va를 할당할 페이지를 요청합니다.
 bool
 vm_claim_page (void *va UNUSED) {
 	/* TODO: Fill this function */
 	struct thread *curr = thread_current();
-	struct page *page = NULL;	
+	struct page *page = NULL;
 	va = pg_round_down(va);
 	
 	ASSERT(pg_ofs (va) == 0 ); // 추가한 검증
-
 	vm_alloc_page(VM_ANON, va, true);
 	page = spt_find_page(&curr->spt, va);
 	return vm_do_claim_page (page);
@@ -272,6 +281,7 @@ static bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current();
+	// printf("claim_page page->va : %X!!!\n", page->va);
 
 	/* Set links */
 	frame->page = page;
@@ -279,7 +289,10 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// 페이지 테이블 항목을 삽입하여 페이지의 VA를 프레임의 PA에 매핑합니다.
-	pml4_set_page(curr->pml4, page->va, frame->kva, true);
+	if(pml4_get_page(curr->pml4, page->va))
+		return false;
+		// PANIC("Already mapped"); // 추가 검증 로직
+	pml4_set_page(curr->pml4, page->va, frame->kva, page->writable);
 	return swap_in (page, frame->kva);
 }
 
@@ -334,27 +347,37 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
    	while (hash_next (&i))
    	{	
 		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
-		// printf("type: %d", sp->vm_type);
 		vm_initializer *init = NULL;
+		struct page *dp = NULL;
 		// 부모 page가 UNINIT
 		// if( sp->frame == NULL){
 		switch (VM_TYPE(sp->vm_type))
 		{
-		case VM_UNINIT:
-			init = sp->uninit.init;
-			struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
-			memcpy(aux, sp->uninit.aux, sizeof(struct load_segment_passing_args));
-			vm_alloc_page_with_initializer(sp->uninit.type, sp->va, sp->writable, init, aux);
-			break;
-		
-		// 부모 page가 ANON/FILE
-		case VM_ANON:
-			vm_claim_page(sp->va);
-			struct page *dp = spt_find_page(dst, sp->va);
-			memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
-			break;
+			case VM_UNINIT:
+				init = sp->uninit.init;
+				struct load_segment_passing_args* aux = (struct load_segment_passing_args*)malloc(sizeof(struct load_segment_passing_args));
+				memcpy(aux, sp->uninit.aux, sizeof(struct load_segment_passing_args));
+				vm_alloc_page_with_initializer(sp->uninit.type, sp->va, sp->writable, init, aux);
+				break;
+			
+			// 부모 page가 ANON/FILE
+			case VM_ANON:
+				vm_claim_page(sp->va);
+				dp = spt_find_page(dst, sp->va);
+				dp->writable = sp->writable;
+				memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
+				break;
+			// 부모 page가 ANON/FILE
+			case VM_FILE:
+				vm_claim_page(sp->va);
+				dp = spt_find_page(dst, sp->va);
+				dp->writable = sp->writable;
+				dp->vm_type = sp->vm_type;
+				dp->file = sp->file;
+				memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
+				break;
+			
 		}
-		
 	}
 	return true;
 }

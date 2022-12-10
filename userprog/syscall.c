@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <syscall-nr.h>
+#include <round.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -49,18 +50,31 @@ syscall_init (void) {
 	lock_init(&filesys_lock);
 }
 
+
+/*
+* *유효주소 여부 확인
+* 유저가상주소 할당 OR user stack범위내부
+*/
 bool
 check_valid_addr(void * addr){
 	struct thread *curr = thread_current();
+	struct page *page;
+	// printf("====check_valid_addr\n");
+	// printf("fault_addr : %X f->rsp : %X thread_current()->stack_pointer : %X\n", addr, curr->tf.rsp, thread_current()->stack_pointer);
 	if ((addr
 			&& is_user_vaddr(addr)
-			&& (spt_find_page(&curr->spt, addr)!= NULL)))
-		  	// && pml4_get_page(curr->pml4, addr)))
+			&& ( (page = spt_find_page(&curr->spt, addr)) != NULL) 
+				||(addr <= USER_STACK && addr >= USER_STACK - 0x100000  && addr >= pg_round_down(curr->stack_pointer)) )){
 		return true;
+	}
 	else
 		return false;
 }
 
+/*
+* *버퍼 유효성 확인
+* writable체크(가상주소만, 스택X), 유효주소여부확인
+*/
 bool
 check_valid_buffer(void* buffer, unsigned size){
 	// offset 정렬
@@ -70,12 +84,17 @@ check_valid_buffer(void* buffer, unsigned size){
 		buffer = pg_round_down(buffer);
 	}
 	ASSERT(pg_ofs(buffer) == 0); //정렬 여부 확인
-
 	while(1){
+		// 유효주소 확인
 		if (!check_valid_addr(buffer))
 			return false;
+		// writable 확인
+		struct page* page = spt_find_page(&curr->spt, buffer);
+		if(page!= NULL && page->writable == false){
+			return false;
+		}
 		if(size < PGSIZE){
-			break;
+			break; 
 		}
 		buffer += PGSIZE;
 		size -= PGSIZE;
@@ -183,7 +202,6 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 		thread_current()->my_exit_code = -1;
 		thread_exit();
 	}
-	
 	struct file *f = curr->fd_table[fd];
 	lock_acquire(&filesys_lock);
 	result = file_read(f, buffer, size);
@@ -194,11 +212,13 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 int sys_write_handler(int fd, void *buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd == 1)
+	// printf("write_handler,fd: %d buffer : %X\n",fd, buffer);
+	if (fd == 1 && (check_valid_buffer(buffer, size))) // 이부분 확인 필요!!
 	{
 		putbuf(buffer, size);
 		return size;
 	}
+
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || !(check_valid_buffer(buffer, size))) 
 	{
 		curr->my_exit_code = -1;
@@ -260,15 +280,45 @@ sys_tell_handler(int fd){
 	lock_release(&filesys_lock);
 }
 
+void *sys_mmap_handler(void* addr, size_t length, int writable, int fd, off_t offset) {
+	printf("mmap_input addr:%X length:%d writable:%d fd:%d offset:%d\n", addr, length, writable, fd, offset);
+	struct thread *curr = thread_current ();
+	struct file **fd_table = curr->fd_table;
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL){
+
+		// || !is_user_vaddr(addr)) {
+		curr->my_exit_code = -1;
+		thread_exit();
+	}
+	if (addr==NULL || length ==0 || pg_ofs(addr)!=0 || pg_ofs(addr)!=0
+		|| spt_find_page(&curr->spt, addr)!=NULL){
+		return NULL;
+	}
+	struct file *file = fd_table[fd];
+	do_mmap(addr, length, writable, file, offset);
+	return addr;
+}
+
+void sys_munmap_handler(void* addr){
+	struct thread *curr = thread_current ();
+	struct page *page = spt_find_page(&curr->spt, addr);
+	// printf("offset :%d, r_b ; %d, z_b : %d, is_start :%d\n", page->file.offset, page->file.page_read_bytes, page->file.page_zero_bytes, page->file.is_start);
+	if (!addr|| !page || VM_TYPE(page->vm_type)!= VM_FILE
+		|| !page->file.is_start){
+		curr->my_exit_code = -1;
+		thread_exit();
+	}
+	do_munmap(addr);
+}
+
+
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) { 
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
-	thread_current()->stack_pointer = f->rsp;
-	// printf("is_kv : %d\n", is_kernel_vaddr(f->rsp));
-	// ASSERT(is_kernel_vaddr(f->rsp));
-	// ASSERT(is_user_vaddr(f->rsp));
+	thread_current()->stack_pointer = f->rsp; 
 
 	switch (syscall_n)
 	{
@@ -314,28 +364,32 @@ syscall_handler (struct intr_frame *f) {
 	case SYS_TELL:
 		f->R.rax = sys_tell_handler(f->R.rdi);
 		break;
-		
+	case SYS_MMAP:
+		f->R.rax = sys_mmap_handler(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		sys_munmap_handler(f->R.rdi);
 	default:
 		break;
 	}
 }
 
 
-// void
-// printf_hash2(struct supplemental_page_table *spt){
-// 	struct hash *h = &spt->hash;
-// 	struct hash_iterator i;
-//    	hash_first (&i, h);
-// 	printf("===== hash 순회시작 =====\n");
-//    	while (hash_next (&i))
-//    	{
-// 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-// 		if (p->frame == NULL){
-// 			printf("va: %X, p_addr : %X\n",p->va, p);
-// 		}
-// 		else {
-// 			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
-// 		}
-//    	}
-// 	printf("===== hash 순회종료 =====\n");
-// }
+void
+printf_hash2(struct supplemental_page_table *spt){
+	struct hash *h = &spt->hash;
+	struct hash_iterator i;
+   	hash_first (&i, h);
+	printf("===== hash 순회시작 =====\n");
+   	while (hash_next (&i))
+   	{
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		if (p->frame == NULL){
+			printf("va: %X, p_addr : %X\n",p->va, p);
+		}
+		else {
+			printf("va: %X, kva : %X, p_addr : %X\n",p->va,p->frame->kva, p);
+		}
+   	}
+	printf("===== hash 순회종료 =====\n");
+}

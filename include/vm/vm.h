@@ -47,6 +47,14 @@ struct load_segment_passing_args{
 	size_t page_zero_bytes;
 };
 
+// struct mmap_passing_args{
+// 	void* addr;
+// 	size_t length;
+// 	int writable;
+// 	struct file* file;
+// 	off_t offset;
+// };
+
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
@@ -136,5 +144,7 @@ unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
 
 bool is_stack(struct page *);
+
+void printf_hash(struct supplemental_page_table *spt);
 
 #endif  /* VM_VM_H */
