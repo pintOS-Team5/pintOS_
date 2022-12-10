@@ -86,7 +86,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		new_page->writable = writable;
 		new_page->vm_type = VM_TYPE(VM_UNINIT);
 	}
-	// printf("check va : %X wtb : %d\n", new_page->va, new_page->writable);
+	// printf("vm_initiazlier va : %X wtb : %d\n", new_page->va, new_page->writable);
 
 	return true;
 err:
@@ -121,6 +121,8 @@ spt_insert_page (struct supplemental_page_table *spt,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	struct thread *curr = thread_current();
+	hash_delete(&spt->hash, &page->hash_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -222,7 +224,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	//유저 스페이스를 가리키고 있어야 함
-	// printf("addr: %X, write : %d\n", addr,write);
 	if (is_kernel_vaddr(addr))
 		return false;
 	// 유저 주소를 가르키고 있으면 tf->rsp 그대로 사용
@@ -232,11 +233,11 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if (is_kernel_vaddr(f->rsp))
 		stack_pointer = thread_current()->stack_pointer;
 	page = spt_find_page(spt, pg_round_down(addr));
-
+	// printf("addr: %X, user :%d, write : %d, page_writable : %d\n", addr,user, write, page->writable);
 	if (page != NULL) {
 		// // 권한이 읽기인데 쓰려는 경우
-		// if (vm_handle_wp(page) == false && (write == true))
-		// 	return false;
+		if (vm_handle_wp(page) == false && (write == true) && user)
+			return false;
 		return vm_do_claim_page(page);
 	}
 
@@ -289,8 +290,8 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// 페이지 테이블 항목을 삽입하여 페이지의 VA를 프레임의 PA에 매핑합니다.
-	if(pml4_get_page(curr->pml4, page->va))
-		return false;
+	// if(pml4_get_page(curr->pml4, page->va))
+	// 	return false;
 		// PANIC("Already mapped"); // 추가 검증 로직
 	pml4_set_page(curr->pml4, page->va, frame->kva, page->writable);
 	return swap_in (page, frame->kva);
@@ -333,7 +334,7 @@ frame_less (const struct hash_elem *a_,
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init(&spt->hash, page_hash, page_less, NULL);
-	lock_init(&spt->spt_lock);
+	// lock_init(&spt->spt_lock);
 }
 
 
@@ -364,7 +365,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 			case VM_ANON:
 				vm_claim_page(sp->va);
 				dp = spt_find_page(dst, sp->va);
-				dp->writable = sp->writable;
+				dp->writable = sp->writable; 
 				memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
 				break;
 			// 부모 page가 ANON/FILE
@@ -384,10 +385,13 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 void page_free_helper(struct hash_elem *e, void *aux){
 	struct page *p= hash_entry(e, struct page, hash_elem);
-	if (p->frame){
-		free(p->frame);
+	struct supplemental_page_tabnle *spt = &thread_current()->spt;
+	// VM_FILE DESTROY만 구현해서 조건 임시 코드
+	if(VM_TYPE(p->operations->type) == VM_FILE){
+		spt_remove_page(spt, p); 
 	}
-	free(p);
+		
+	
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -396,7 +400,6 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	hash_clear(&spt->hash, page_free_helper);
-
 }
 
 

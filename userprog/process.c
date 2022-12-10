@@ -743,7 +743,7 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 // lazy_load_segment는 곧 load_segment의 일부분을 떼서 동작시키는것(늦게 동작시키고 싶은 부분을 떼서?)
-static bool
+bool
 lazy_load_segment (struct page *page, void *aux) {
    /* TODO: Load the segment from the file */
    /* TODO: This called when the first page fault occurs on address VA. */
@@ -755,15 +755,25 @@ lazy_load_segment (struct page *page, void *aux) {
    off_t ofs = load_segment_passing_args->ofs;
 
    //file pos값 설정
-   file_seek(file, ofs);
-
-	/* Load this page. */
-	if (file_read (file, page->frame->kva, page_read_bytes) != (int) page_read_bytes) {
+   // file_seek(file, ofs);
+   /* Load this page. */
+	if (file_read_at (file, page->frame->kva, page_read_bytes, ofs) != (int) page_read_bytes) {
 		palloc_free_page (page->frame->kva);
 		return false;
 	}
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+
+   if(page->vm_type == VM_TYPE(VM_FILE)){
+      struct file_page *file_page = &page->file;
+      file_page->file = file;
+      file_page->offset = ofs;
+      file_page->page_read_bytes = page_read_bytes;
+      file_page->page_zero_bytes = page_zero_bytes;
+      // printf("lazy_load seg file :%X, offset : %d, prb :%d, pzb :%d\n", file, ofs, page_read_bytes, page_zero_bytes);
+   }
 	free(aux);
+   // printf("%s\n", page->va);
+   // printf("lazy_load_seg end %X\n", page->va);
 	return true;
 }
 

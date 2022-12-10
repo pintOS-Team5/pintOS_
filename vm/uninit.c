@@ -51,8 +51,6 @@ uninit_initialize (struct page *page, void *kva) {
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
 	// printf("va: %X, uninit->type: %d\n", page->va, uninit->type);
-
-
 	// if(VM_TYPE(uninit->type) == VM_ANON){
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
@@ -85,16 +83,11 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
+	struct thread *curr = thread_current();
 	struct uninit_page *uninit UNUSED = &page->uninit;
+
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
-	switch (VM_TYPE(page->uninit.type))
-	{
-		case VM_ANON:
-			free(page);
-			break; 
-		case VM_FILE: 
-			break;
-	}
+	free(page->uninit.aux);
 	return;
 }
