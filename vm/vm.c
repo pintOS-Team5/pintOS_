@@ -5,9 +5,13 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/stdio.h"
+#include <bitmap.h>
+#include "devices/disk.h"
 
-struct list frame_list;
+// struct list frame_list;
+// struct frame* frames; 
 struct lock frame_lock;
+struct swap_disk_table swap_disk_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -22,14 +26,30 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 
-	frame_init();
+	frame_table_init();
+	swap_disk_table_init();
 }
 
 void
-frame_init(void) {
-	list_init(&frame_list);
+frame_table_init(void) {
+	
+	// list_init(&frame_list);
 	lock_init(&frame_lock);
 	// printf_list(&frame_list);
+}
+
+void
+swap_disk_table_init(void){
+	// printf("swap_table_init\n");
+	lock_init(&swap_disk_table.swap_disk_lock);
+	swap_disk_table.used_map = bitmap_create(disk_size(disk_get(1,1)));
+	// printf("disk_size : %d\n", disk_size(disk_get(1,1)));
+	// printf("bitmap_size : %d\n", bitmap_size(swap_disk_table.used_map));
+	// void *idx = bitmap_scan_and_flip(swap_disk_table.used_map, 0, PGSIZE/DISK_SECTOR_SIZE, false);
+	// idx = bitmap_scan_and_flip(swap_disk_table.used_map, 0, PGSIZE/DISK_SECTOR_SIZE, false);
+	// printf("%d\n", idx);
+
+
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -48,7 +68,8 @@ page_get_type (struct page *page) {
 
 /* Helpers */
 static struct frame *vm_get_victim (void);
-static bool vm_do_claim_page (struct page *page);
+// static bool vm_do_claim_page (struct page *page);
+bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
 /* Create the pending page object with initializer. If you want to create a
@@ -57,13 +78,13 @@ static struct frame *vm_evict_frame (void);
 bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
-	ASSERT (VM_TYPE(type) != VM_UNINIT);
+	ASSERT (VM_TYPE(type) != VM_UNINIT); 
 	struct page *new_page = NULL;
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct supplemental_page_table *spt = &thread_current ()->spt; 
 
 	/* Check whether the upage is already occupied or not. */
 	// va 할당 안받은경우
-	new_page = spt_find_page (spt, upage);
+	new_page = spt_find_page (spt, upage); 
 	if (new_page == NULL) {
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
@@ -84,7 +105,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		if (!spt_insert_page(spt, new_page))
 			goto err;
 		new_page->writable = writable;
-		new_page->vm_type = VM_TYPE(VM_UNINIT);
+		new_page->vm_type = VM_UNINIT;
 	}
 	// printf("vm_initiazlier va : %X wtb : %d\n", new_page->va, new_page->writable);
 
@@ -97,7 +118,7 @@ err:
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	/* TODO: Fill this function. */
-	struct page *p = NULL;
+	struct page *p = NULL; 
   	struct hash_elem *e = NULL;
 	struct page page;
 	page.va = pg_round_down(va);
@@ -127,6 +148,54 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return true;
 }
 
+void*
+get_empty_swap_disk_sector(void){
+	// printf("start get_empty_swap_disk_sector\n");
+	lock_acquire(&swap_disk_table.swap_disk_lock);
+	void *idx = bitmap_scan_and_flip(swap_disk_table.used_map, 0, PGSIZE/DISK_SECTOR_SIZE, false);
+	ASSERT (bitmap_test(swap_disk_table.used_map, idx) == true);
+
+	lock_release(&swap_disk_table.swap_disk_lock);
+
+	ASSERT((disk_sector_t)idx % 8 == 0);
+	// printf("end get_empty_swap_disk_sector\n");
+	return idx;
+}
+
+void
+set_swap_table_bit(size_t start, bool value){
+	// printf("start set_swap_table_bit\n");
+	lock_acquire(&swap_disk_table.swap_disk_lock);
+	ASSERT (bitmap_test(swap_disk_table.used_map, start) == true);
+
+	bitmap_set_multiple(swap_disk_table.used_map, start, PGSIZE/DISK_SECTOR_SIZE, value);
+
+	ASSERT (bitmap_test(swap_disk_table.used_map, start) == false);
+	lock_release(&swap_disk_table.swap_disk_lock);
+	// printf("end set_swap_table_bit\n");
+}
+
+void
+read_swap_disk(struct disk* swap_disk, void* disk_sector, void* addr){
+	// lock_acquire(&swap_disk_table.swap_disk_lock);
+	for(int i =0; i<8; i++){
+		disk_write(swap_disk,(disk_sector_t)disk_sector+i, addr+i*DISK_SECTOR_SIZE);
+		// addr += DISK_SECTOR_SIZE;  
+	}
+	// lock_release(&swap_disk_table.swap_disk_lock);
+}
+
+void
+write_swap_disk(struct disk* swap_disk, void* disk_sector, void* addr){
+	// lock_acquire(&swap_disk_table.swap_disk_lock);
+	for(int i =0; i<8; i++){
+		disk_read(swap_disk,(disk_sector_t)disk_sector+i, addr+i*DISK_SECTOR_SIZE); 
+		// addr += DISK_SECTOR_SIZE;  
+	}
+	// lock_release(&swap_disk_table.swap_disk_lock);
+}
+
+
 // /* Find VA from spt and return page. On error, return NULL. */
 // struct page *
 // spt_find_swap (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
@@ -154,6 +223,7 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 // }
 
 
+
 // frame 가져오기 (list_pop_front)
 struct frame *
 get_frame_from_ft (struct list *fl) {
@@ -169,12 +239,32 @@ get_frame_from_ft (struct list *fl) {
 // frame 넣기 (list_push_back)
 bool
 set_frame_to_ft (struct list *fl, struct frame *frame) {
-	// printf("hi\n!!");
 	lock_acquire(&frame_lock);
 	list_push_back(fl, &frame->list_elem);
 	lock_release(&frame_lock);
 	return true;
 }
+
+// struct frame *
+// get_frame_from_ft (void) {
+// 	lock_acquire(&frame_lock);
+// 	struct frame *f = NULL;
+//   	struct list_elem *e = list_pop_front (fl);
+// 	if (e)
+// 		f = list_entry(e, struct frame, list_elem);
+// 	lock_release(&frame_lock);
+// 	return f;
+// }
+
+// // frame 넣기 (list_push_back)
+// bool
+// set_frame_to_ft (struct frame *frame) {
+// 	lock_acquire(&frame_lock);
+// 	list_push_back(fl, &frame->list_elem);
+// 	lock_release(&frame_lock);
+// 	return true;
+// }
+
 
 
 
@@ -184,16 +274,121 @@ set_frame_to_ft (struct list *fl, struct frame *frame) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+
+    
 	while(1){
 		victim = get_frame_from_ft(&frame_list);
-		if(victim->page->operations->type==VM_ANON){
+		if ((victim->page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER){
 			set_frame_to_ft(&frame_list, victim);
 		}
 		else{
 			break;
 		}
 	}
+	set_frame_to_ft(&frame_list, victim);
+
+/*이중 for문*/
+	// struct thread *curr = thread_current();
+	// struct list_elem *e;
+
+//    for(e = list_begin(&frame_list); e!= list_end(&frame_list); e=list_next(e)){
+//       victim = list_entry(e, struct frame, list_elem);
+//       if(pml4_is_accessed(curr->pml4,victim->page->va)){
+//          pml4_set_accessed(curr->pml4, victim->page->va,0);
+//       }
+//       else{
+//          return victim;
+//       }
+//    }
+//    	for(e = list_begin(&frame_list); e!= list_end(&frame_list); e=list_next(e)){
+//       victim = list_entry(e, struct frame, list_elem);
+//       if(pml4_is_accessed(curr->pml4,victim->page->va)){
+//          pml4_set_accessed(curr->pml4, victim->page->va,0);
+//       }
+//       else{
+//          return victim;
+//       }
+//    	}
+
+
+
+
+
+	 /* TODO: The policy for eviction is up to you. */
+	// victim = get_frame_from_ft(&frame_list);
+	// 임시 항상 file_frame만 나오게
+	// printf_hash_page(&thread_current()->spt);
+	// printf_list(&frame_list);
+	// for(int i = 0; i <=10; i++){
+	// 	victim = get_frame_from_ft(&frame_list);
+	// 	set_frame_to_ft(&frame_list, victim);
+	// }
+	// printf_list(&frame_list);
+
+	// int i = 0;
+	// struct list_elem *e;
+
+	// for (e = list_begin(&frame_list); e != list_end(&frame_list); e = list_next(e)){
+	// 	i++;
+	// 	victim = list_entry(e, struct frame, list_elem);
+	// 	if( pml4_is_accessed(thread_current()->pml4, victim->page->va)){
+	// 		pml4_set_accessed(thread_current()->pml4, victim->page->va, 0);
+	// 		set_frame_to_ft(&frame_list, victim);
+	// 	}
+	// 	else{
+	// 		return victim;
+	// 	}
+	// }
+
+
+
+	
+	// while(1){
+	// 	victim = get_frame_from_ft(&frame_list); 
+	// 	if( pml4_is_accessed(thread_current()->pml4, victim->page->va)){
+	// 		// printf("accessed victim->kva : %X, va : %X\n", victim->kva,victim->page->va);
+	// 		pml4_set_accessed(thread_current()->pml4, victim->page->va, 0);
+	// 		set_frame_to_ft(&frame_list, victim);
+	// 	}
+	// 	else if ((victim->page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER){
+	// 		// printf("stack victim->kva : %X, va : %X\n", victim->kva,victim->page->va);
+	// 		set_frame_to_ft(&frame_list, victim);
+	// 	}
+	// 	else{
+	// 		// printf("real victim->kva : %X, va : %X\n", victim->kva,victim->page->va);
+
+	// 		return victim;
+	// 	}
+	// }
+
+	// 체크
+	// while(1){
+	// 	victim = get_frame_from_ft(&frame_list);
+	// 	if( // (victim->page->vm_type&VM_EXECUTE_MARKER) == VM_EXECUTE_MARKER
+	// 		// (victim->page->writable == false) 
+	// 		pml4_is_accessed(thread_current()->pml4, victim->page->va)
+	// 		|| (victim->page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER) {
+	// 	// if(victim->page->writable == false) {
+	// 	// if((victim->page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER) {
+	// 		// printf("%d %d\n",(victim->page->writable==false), (victim->page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER );
+	// 		pml4_set_accessed(thread_current()->pml4, victim->page->va, false);
+	// 		set_frame_to_ft(&frame_list, victim);
+	// 	}
+	// 	else{
+	// 		break;
+	// 	}
+	// }
+	
+	// // 임시 항상 file_frame만 나오게
+	// while(1){
+	// 	victim = get_frame_from_ft(&frame_list);
+	// 	if(victim->page->operations->type==VM_ANON){
+	// 		set_frame_to_ft(&frame_list, victim);
+	// 	}
+	// 	else{
+	// 		break;
+	// 	}
+	// }
 	return victim;
 }
 
@@ -202,6 +397,9 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
+	if(victim == NULL){
+		PANIC("NO victim\n");
+	}
 	// printf("evict!!!\n");
 	// printf_hash_page(&thread_current()->spt);
 	/* TODO: swap out the victim and return the evicted frame. */
@@ -222,14 +420,16 @@ vm_get_frame (void) {
 	if (frame == NULL){
 		PANIC("MALLOC ERROR");
 	}
-	
 	frame->kva =  palloc_get_page(PAL_USER | PAL_ZERO);
 	if(frame->kva == NULL){		
 		frame = vm_evict_frame();
 	}
-	frame->page = NULL;
-
+	else {
+		// frame_list 관리
+		set_frame_to_ft(&frame_list, frame);
+	}
 	
+	frame->page = NULL;
 	ASSERT(is_kernel_vaddr(frame->kva)); // 추가한 검증
 	ASSERT (frame != NULL);
 	ASSERT(frame->kva != NULL); // 추가한 검증
@@ -240,7 +440,30 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+
+	// struct thread *curr = thread_current();
+	// addr = pg_round_down(addr);
+	// ASSERT(pg_ofs (addr) == 0 ); // 추가한 검증
+
+	// struct page * new_page = (struct page *)malloc(sizeof(struct page));
+	// page = spt_find_page(&curr->spt, addr);
+
+	// vm_claim_page(addr); //frame이랑 연결하고
+	// struct page *page = spt_find_page(&thread_current()->spt, addr);
+	// page->vm_type |= VM_STACK_MARKER;
+	// // printf("vm_stack_growth : %X, page->vm_type:%d\n", page->va, page->vm_type);
+	// // printf_hash_page(&thread_current()->spt);
+	// // ASSERT(page->vm_type & VM_STACK_MARKER == VM_STACK_MARKER);
+	// thread_current()->stack_bottom -= PGSIZE;//한 페이지만큼 stack bottom 내려주고
+	
+
+	
 	vm_claim_page(addr); //frame이랑 연결하고
+	struct page *page = spt_find_page(&thread_current()->spt, addr);
+	page->vm_type |= VM_STACK_MARKER;
+	// printf("vm_stack_growth : %X, page->vm_type:%d\n", page->va, page->vm_type);
+	// printf_hash_page(&thread_current()->spt);
+	// ASSERT(page->vm_type & VM_STACK_MARKER == VM_STACK_MARKER);
 	thread_current()->stack_bottom -= PGSIZE;//한 페이지만큼 stack bottom 내려주고
 }
 
@@ -274,10 +497,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	// printf("addr: %X, user :%d, write : %d, page_writable : %d\n", addr,user, write, page->writable);
 	if (page != NULL) {
 		// 스왑아웃된 페이지 인 경우
-		if (page->swap_out_yn==true){
-			printf("swap_out vmtry_handler\n");
-			vm_do_claim_page(page);
-		}
+		// if (page->swap_out_yn==true){
+		// 	// printf("swap_out vmtry_handler\n");
+		// 	vm_do_claim_page(page);
+		// }
 		// // 권한이 읽기인데 쓰려는 경우
 		if (vm_handle_wp(page) == false && (write == true) && user)
 			return false;
@@ -290,6 +513,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		return true;
 	}
 	else 
+		// printf("stack outof range : %X\n", addr);
 		return false;
 }
 
@@ -321,7 +545,7 @@ vm_claim_page (void *va UNUSED) {
 }
 
 /* Claim the PAGE and set up the mmu. */
-static bool
+bool
 vm_do_claim_page (struct page *page) {
 	struct frame *frame = vm_get_frame ();
 	struct thread *curr = thread_current();
@@ -331,8 +555,7 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
-	// frame_list 관리
-	set_frame_to_ft(&frame_list, frame);
+
 	// printf_list(&frame_list);
 	// struct frame *f2 = get_frame_from_ft(&frame_list);
 	// printf("f2 kva :%X va :%X\n", f2->kva, f2->page->va);
@@ -346,6 +569,13 @@ vm_do_claim_page (struct page *page) {
 	// if(pg_ofs(frame->kva)!= 0 )
 	// 	printf("claim_page page->va : %X!!!\n", frame->kva);
 	pml4_set_page(curr->pml4, page->va, frame->kva, page->writable);
+	// printf_hash_page(&thread_current()->spt);
+	if( (page->vm_type&VM_STACK_MARKER) == VM_STACK_MARKER){
+		printf("i'ms stack\n");
+		struct page *p = page;
+		// printf("va: %X, type : %d vm_type:%d writable : %d kva : %X\n",p->va, p->operations->type, p->vm_type, p->writable, p->frame->kva);
+		return true;
+	}
 	return swap_in (page, frame->kva);
 }
 
@@ -381,7 +611,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 	struct hash_iterator i;
    	hash_first (&i, &src->page_hash);
-	// printf_hash(src);
+	// printf("copy parent!!!!\n");
+	// printf_hash_page(src);
    	while (hash_next (&i))
    	{	
 		struct page *sp = hash_entry(hash_cur(&i), struct page, hash_elem);
@@ -389,7 +620,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct page *dp = NULL;
 		// 부모 page가 UNINIT
 		// if( sp->frame == NULL){
-		switch (VM_TYPE(sp->vm_type))
+		// !!FIXME: VM_TYPE체크
+		
+
+		switch (VM_TYPE(sp->operations->type))
 		{
 			case VM_UNINIT:
 				init = sp->uninit.init;
@@ -400,9 +634,17 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 			
 			// 부모 page가 ANON/FILE
 			case VM_ANON:
-				vm_claim_page(sp->va);
+				// if((sp->vm_type & VM_STACK_MARKER) == VM_STACK_MARKER){
+				// 	vm_stack_growth(sp->va);
+				// }else{
+				// 	vm_claim_page(sp->va);
+				// }
+				vm_stack_growth(sp->va);
 				dp = spt_find_page(dst, sp->va);
-				dp->writable = sp->writable; 
+				dp->writable = sp->writable;
+				dp->vm_type = sp->vm_type;
+				// !!TODO: ANON Disk swapslot 관리해야 함
+				dp->anon = sp->anon;
 				memcpy(dp->frame->kva, sp->frame->kva, PGSIZE);
 				break;
 			// 부모 page가 ANON/FILE
@@ -417,15 +659,17 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 			
 		}
 	}
+	// printf("copy son!!!!\n");
+	// printf_hash_page(dst);
 	return true;
 }
 
 void page_free_helper(struct hash_elem *e, void *aux){
 	struct page *p= hash_entry(e, struct page, hash_elem);
-	struct supplemental_page_tabnle *spt = &thread_current()->spt;
-	// VM_FILE DESTROY만 구현해서 조건 임시 코드
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	//FIXME: VM_FILE DESTROY만 구현해서 조건 임시 코드
 	if(VM_TYPE(p->operations->type) == VM_FILE){
-		spt_remove_page(spt, p); 
+		spt_remove_page(spt, p);
 	}
 }
 
@@ -434,7 +678,9 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	hash_clear(&spt->page_hash, page_free_helper);
+	// printf("thread_name: %s\n", thread_name());
+	// printf_hash_page(spt);
+	hash_clear(&spt->page_hash, page_free_helper); 
 	// hash_delete(&spt->page_hash, page_free_helper);
 	// hash_delete(&spt->swap_hash, NULL);
 }
@@ -461,10 +707,10 @@ printf_hash_page(struct supplemental_page_table *spt){
    	{
 		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
 		if (p->frame == NULL){
-			printf("va: %X, type:%d writable : %d\n",p->va, p->operations->type, p->writable);
+			printf("va: %X, type : %d vm_type:%d uninit.type:%d writable : %d \n",p->va, p->operations->type, p->vm_type, p->uninit.type, p->writable, p->vm_type);
 		}
 		else {
-			printf("va: %X, type:%d writable : %d kva : %X\n",p->va, p->operations->type, p->writable, p->frame->kva);
+			printf("va: %X, type : %d vm_type:%d writable : %d kva : %X\n",p->va, p->operations->type, p->vm_type, p->writable, p->frame->kva);
 		}
    	}
 	printf("===== hash 순회종료 =====\n");

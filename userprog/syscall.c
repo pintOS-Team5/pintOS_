@@ -231,15 +231,20 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 }
 
 int sys_write_handler(int fd, void *buffer, unsigned size){
-	struct thread *curr = thread_current();
-	int result;
+	struct thread *curr = thread_current(); 
+	int result; 
 	// printf("write_handler,fd: %d buffer : %X\n",fd, buffer);
-	if (fd == 1 && (check_valid_buffer(buffer, size, false))) // 이부분 확인 필요!!
+	// if (fd == 1 && (check_valid_buffer(buffer, size, false))) // 이부분 확인 필요!!
 	if (fd == 1) // 이부분 확인 필요!!
 	{
+		// lock_acquire(&filesys_lock);
 		putbuf(buffer, size);
+		// lock_release(&filesys_lock);ƒ
+		// printf("write_fd_end ,fd: %d buffer : %X\n",fd, buffer);
 		return size;
 	}
+	
+
 
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || !(check_valid_buffer(buffer, size, false))) 
 	// if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || !(check_valid_addr(buffer)))
@@ -255,14 +260,17 @@ int sys_write_handler(int fd, void *buffer, unsigned size){
 }
 
 int sys_fork_handler(char *thread_name, struct intr_frame *f){
+	// printf("fork start\n");
 	return process_fork(thread_name, f);
 }
 
 int sys_wait_handler(int pid){
+	// printf("wait start\n");
 	return process_wait(pid);
 }
 
 int sys_exec_handler(char * cmd_line){
+	// printf("exec start\n");
 	struct thread *curr = thread_current();
 	if (!check_valid_addr(cmd_line))
 	{
@@ -329,7 +337,8 @@ void sys_munmap_handler(void* addr){
 	struct thread *curr = thread_current ();
 	struct page *page = spt_find_page(&curr->spt, addr); 
 	// printf("munmap addr:%X file :%X offset :%d, r_b ; %d, z_b : %d\n", addr, page->file.file, page->file.offset, page->file.page_read_bytes, page->file.page_zero_bytes);
-	if (!addr|| !page || VM_TYPE(page->vm_type)!= VM_FILE){
+	// FIXME: VM_TYPE 체크
+	if (!addr|| !page || VM_TYPE(page->operations->type)!= VM_FILE){
 		// ||page->file.file->deny_write == true){
 		// || !page->file.is_start){
 		curr->my_exit_code = -1;

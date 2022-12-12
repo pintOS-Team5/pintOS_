@@ -763,7 +763,8 @@ lazy_load_segment (struct page *page, void *aux) {
 	}
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
-   if(page->vm_type == VM_TYPE(VM_FILE)){
+   // FIXME: VM_TYPE 체크
+   if(page->operations->type == VM_TYPE(VM_FILE)){
       struct file_page *file_page = &page->file;
       file_page->file = file;
       file_page->offset = ofs;
@@ -771,6 +772,12 @@ lazy_load_segment (struct page *page, void *aux) {
       file_page->page_zero_bytes = page_zero_bytes;
       // printf("lazy_load seg file :%X, offset : %d, prb :%d, pzb :%d\n", file, ofs, page_read_bytes, page_zero_bytes);
    }
+
+   else if( (page->operations->type == VM_TYPE(VM_ANON)) && page->writable == false){
+      page->vm_type |= VM_EXECUTE_MARKER;
+   }
+
+
 	free(aux);
    // printf("%s\n", page->va);
    // printf("lazy_load_seg end %X\n", page->va);
@@ -833,14 +840,14 @@ setup_stack (struct intr_frame *if_) {
    bool success = false;
    void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
-   /* TODO: Map the stack on stack_bottom and claim the page immediately.
-    * TODO: If success, set the rsp accordingly.
-    * TODO: You should mark the page is stack. */
-   /* TODO: Your code goes here */
+   /*
+	ASSERT(pg_ofs (stack_bottom) == 0 ); // 추가한 검증
+	vm_alloc_page(VM_ANON, stack_bottom, true);
+	struct page *stack_page= spt_find_page(&thread_current()->spt, stack_bottom);
+   stack_page->vm_type |= VM_STACK_MARKER;
+   vm_do_claim_page(stack_page);
 
-   success = vm_claim_page(stack_bottom);
-   struct page * stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
-   stack_page->vm_type+=VM_STACK_MARKER;
+   // ASSERT(stack_page->vm_type& VM_STACK_MARKER == VM_STACK_MARKER);
 
    // 비트 마킹하기
    if (success){
@@ -848,6 +855,20 @@ setup_stack (struct intr_frame *if_) {
       thread_current()->stack_bottom = stack_bottom;
    }
    return success;
+   */
+   
+   success = vm_claim_page(stack_bottom);
+   struct page * stack_page = spt_find_page(&thread_current()->spt, stack_bottom);
+   stack_page->vm_type |= VM_STACK_MARKER;
+   // ASSERT(stack_page->vm_type& VM_STACK_MARKER == VM_STACK_MARKER);
+
+   // 비트 마킹하기
+   if (success){
+      if_->rsp = USER_STACK;
+      thread_current()->stack_bottom = stack_bottom;
+   }
+   return success;
+
 }
 
 #endif /* VM */

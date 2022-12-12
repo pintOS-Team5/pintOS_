@@ -50,7 +50,7 @@ uninit_initialize (struct page *page, void *kva) {
 	/* Fetch first, page_initialize may overwrite the values */
 	vm_initializer *init = uninit->init;
 	void *aux = uninit->aux;
-	// printf("va: %X, uninit->type: %d\n", page->va, uninit->type);
+	// printf("uninit_initializer va: %X, page->vm_type: %d\n", page->va, page->vm_type);
 	// if(VM_TYPE(uninit->type) == VM_ANON){
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
@@ -88,6 +88,8 @@ uninit_destroy (struct page *page) {
 
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+	// printf("uninit_destory\n");
+	// printf("uninit page->va: %X\n", page->va);
 	free(page->uninit.aux);
 	return;
 }

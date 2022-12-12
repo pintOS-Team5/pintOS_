@@ -22,7 +22,7 @@ enum vm_type {
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
 	VM_STACK_MARKER = (1 << 3),
-	VM_MARKER_1 = (1 << 4),
+	VM_EXECUTE_MARKER = (1 << 4),
 
 	/* DO NOT EXCEED THIS VALUE. */
 	VM_MARKER_END = (1 << 31),
@@ -106,6 +106,11 @@ struct supplemental_page_table {
 	// struct hash swap_hash;
 };
 
+struct swap_disk_table{
+	struct lock swap_disk_lock;
+	struct bitmap *used_map;
+};
+
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
@@ -118,11 +123,16 @@ void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
 bool spt_insert_swap (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_swap (struct supplemental_page_table *spt, struct page *page);
 
+void* get_empty_swap_disk_sector(void);
+void set_swap_table_bit(size_t start, bool value);
+void read_swap_disk(struct disk* swap_disk, void* disk_sector, void* addr);
+void write_swap_disk(struct disk* swap_disk, void* disk_sector, void* addr);
+
 bool set_frame_to_ft (struct list *frame_list, struct frame *frame);
 struct frame *get_frame_from_ft (struct list *frame_list);
 
 void vm_init (void);
-void frame_init(void);
+void frame_table_init(void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
 		bool write, bool not_present);
 
@@ -132,6 +142,7 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 		bool writable, vm_initializer *init, void *aux);
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
+bool vm_do_claim_page (struct page *page);
 enum vm_type page_get_type (struct page *page);
 
 unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);

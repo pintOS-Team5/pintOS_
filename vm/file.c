@@ -29,8 +29,10 @@ bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
 	// printf("file_backed_initializer\n");  
+	// printf("file vm_type: %d\n", type);
 	page->operations = &file_ops;
-	page->vm_type = VM_TYPE(type);
+	// printf("file page->vm_type : %d\n");
+	// page->vm_type = type;
 	struct file_page *file_page = &page->file; 
 	return true;
 }
@@ -38,7 +40,7 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	printf("swap in\n");
+	// printf("swap in\n");
 	struct file_page *file_page UNUSED = &page->file;
 	if(!file_read_at(file_page->file, kva, file_page->page_read_bytes, file_page->offset) == file_page->page_read_bytes)
 		return false;
@@ -58,6 +60,7 @@ file_backed_swap_out (struct page *page) {
 
 	if (pml4_is_dirty(curr->pml4, page->va) && page->writable==true){
 		file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+		pml4_set_dirty(curr->pml4, page->va, false);
 	}
 	pml4_clear_page(thread_current()->pml4, page->va);
 	page->swap_out_yn = true;
@@ -70,21 +73,17 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct thread* curr = thread_current();
-	// printf("file_back_dest\n");
 	struct file_page *file_page UNUSED = &page->file;
+	// printf("file_destory\n");
 	// printf("page->va :%X", page->va);
 	// file_write_at(file_page->file, page->va, file_page->page_read_bytes, file_page->offset);
 	// printf("file :%X, va:%X, prb: %d, offset:%d\n", page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
 	if (pml4_is_dirty(curr->pml4, page->va) && page->writable==true){
 		file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+		pml4_set_dirty(curr->pml4, page->va, false);
 	}
-	pml4_clear_page(thread_current()->pml4, page->va);
+	// pml4_clear_page(thread_current()->pml4, page->va);
 	free(page->frame);
-	
-	// 아래는 어디서 해주지?
-	// spt_remove_page(&curr->spt, page);
-	
-	// free(page->frame);
 }
 
 /* Do the mmap */
@@ -138,39 +137,46 @@ do_munmap (void *addr) {
 	void* write_addr = addr;
 	struct page* page = NULL;
 	// printf("do_munmap :%X\n", addr);
+	// printf_hash_page(&thread_current()->spt);
 	while(1){
 		page = spt_find_page(&thread_current()->spt, write_addr);
 		if(page == NULL){
 			break;
 		}
-		if(page->vm_type != VM_TYPE(VM_FILE) 
-			&& !( page->vm_type == VM_TYPE(VM_UNINIT) && page->uninit.type == VM_TYPE(VM_FILE) ))
-			// printf("here!!\n");
+		// FIXME: VM_TYPE체크
+		if(page_get_type(page) != VM_FILE)
 			break;
-					
-		if(page->vm_type == VM_TYPE(VM_FILE)){
-			// file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
-			// printf_hash_page(&thread_current()->spt);
-			spt_remove_page(&thread_current()->spt, page); 
-
-			// printf("page->va :%X", page->va);
+		else
 			// printf("file :%X, page->va :%X, prb: %d, pzb : %d, file_offset :%d\n",page->file.file, page->va, page->file.page_read_bytes,page->file.page_zero_bytes , page->file.offset);
-			// file_seek(page->file.file, page->file.offset);
-			// memset(page->va, 0, page->file.page_read_bytes);
-			// printf("reset!!!\n");
-			// printf("%s\n", page->va);
-			// file_read_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
-			// printf("read!!!\n");
-			// printf("%s\n", page->va);
-			// printf("file_write_end\n");
-		}
-		else if(page->vm_type == VM_TYPE(VM_UNINIT) && page->uninit.type == VM_TYPE(VM_FILE)){
-			// printf("uninit todo\n");
-			spt_remove_page(&thread_current()->spt, page); 
-		}
-		else{
-			break;
-		}
+			spt_remove_page(&thread_current()->spt, page);
+		// if(VM_TYPE(page->operations->type) != VM_FILE
+		// 	&& !( VM_TYPE(page->operations->type) == VM_UNINIT && VM_TYPE(page->uninit.type) == VM_FILE) )
+		// 	// printf("here!!\n");
+		// 	break;
+					
+		// if(VM_TYPE(page->operations->type) == VM_FILE){
+		// 	// file_write_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+		// 	// printf_hash_page(&thread_current()->spt);
+		// 	spt_remove_page(&thread_current()->spt, page); 
+
+		// 	// printf("page->va :%X", page->va);
+		// 	// printf("file :%X, page->va :%X, prb: %d, pzb : %d, file_offset :%d\n",page->file.file, page->va, page->file.page_read_bytes,page->file.page_zero_bytes , page->file.offset);
+		// 	// file_seek(page->file.file, page->file.offset);
+		// 	// memset(page->va, 0, page->file.page_read_bytes);
+		// 	// printf("reset!!!\n");
+		// 	// printf("%s\n", page->va);
+		// 	// file_read_at(page->file.file, page->va, page->file.page_read_bytes, page->file.offset);
+		// 	// printf("read!!!\n");
+		// 	// printf("%s\n", page->va);
+		// 	// printf("file_write_end\n");
+		// }
+		// else if( VM_TYPE(page->operations->type) == VM_UNINIT && VM_TYPE(page->uninit.type) == VM_FILE){
+		// 	// printf("uninit todo\n");
+		// 	spt_remove_page(&thread_current()->spt, page); 
+		// }
+		// else{
+		// 	break;
+		// }
 		write_addr+= PGSIZE;
 	}
 	// printf("munmap_end!!!\n");
