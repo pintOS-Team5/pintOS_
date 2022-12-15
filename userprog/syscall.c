@@ -49,6 +49,18 @@ syscall_init (void) {
 	lock_init(&filesys_lock);
 }
 
+bool
+check_address(char *ptr) {
+    struct thread *curr = thread_current();
+    if(is_kernel_vaddr(ptr)) {
+        return false;
+    }
+    if (spt_find_page(&thread_current()->spt, ptr)== NULL) {
+        return false;
+    }
+    return true;
+}
+
 void
 sys_halt_handler(){
 	power_off();
@@ -63,12 +75,8 @@ sys_exit_handler(int arg1){
 bool sys_create_handler(char *filename, unsigned intial_size){
 	bool result;
 	struct thread *curr = thread_current();
-	if (!(filename 
-			&& is_user_vaddr(filename)
-		  	&& pml4_get_page(curr->pml4, filename)))
-	{
-		curr->my_exit_code = -1;
-		thread_exit();
+	if (!check_address(filename)){
+		sys_exit_handler(-1);
 	}
 	lock_acquire(&filesys_lock);
 	result = filesys_create(filename, intial_size);
@@ -85,15 +93,9 @@ bool sys_remove_handler(char *filename){
 }
 
 int sys_open_handler(char *filename){
-	// return -1;
 	struct thread *curr = thread_current();
-	if (!(filename
-			&& is_user_vaddr(filename)
-		  	&& pml4_get_page(curr->pml4, filename)))
-	{
-		curr->my_exit_code = -1;
-		thread_exit();
-	}
+	if (!check_address(filename))
+		sys_exit_handler(-1);
 	lock_acquire(&filesys_lock);
 	struct file *file = filesys_open(filename);
 	lock_release(&filesys_lock);
@@ -118,8 +120,7 @@ int sys_open_handler(char *filename){
 int sys_close_handler(int fd){
 	struct file **f_table = thread_current()->fd_table;
 	if (fd < FDBASE || fd >= FDLIMIT){
-		thread_current()->my_exit_code = -1;
-		thread_exit();
+		sys_exit_handler(-1);
 	}
 	else if (f_table[fd]){
 		lock_acquire(&filesys_lock);
@@ -128,8 +129,7 @@ int sys_close_handler(int fd){
 		f_table[fd] = NULL;
 	}
 	else{
-		thread_current()->my_exit_code = -1;
-		thread_exit();
+		sys_exit_handler(-1);
 	}
 }
 
@@ -139,7 +139,7 @@ int sys_filesize_handler(int fd){
 	struct file **f_table = curr->fd_table;
 	struct file *f = f_table[fd]; 
 	lock_acquire(&filesys_lock);
-	result =  file_length(f);
+	result = file_length(f);
 	lock_release(&filesys_lock);
 	return result;
 }
@@ -147,10 +147,9 @@ int sys_filesize_handler(int fd){
 int sys_read_handler(int fd, void* buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer))
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(buffer))
 	{
-		thread_current()->my_exit_code = -1;
-		thread_exit();
+		sys_exit_handler(-1);
 	}
 	struct file *f = curr->fd_table[fd];
 	lock_acquire(&filesys_lock);
@@ -162,15 +161,13 @@ int sys_read_handler(int fd, void* buffer, unsigned size){
 int sys_write_handler(int fd, void *buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd == 1)
-	{
+	if (fd == 1){
 		putbuf(buffer, size);
 		return size;
 	}
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || buffer == NULL || is_kernel_vaddr(buffer) || !pml4_get_page(curr->pml4, buffer)) 
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(buffer))
 	{
-		curr->my_exit_code = -1;
-		thread_exit();
+		sys_exit_handler(-1);
 	}
 	struct file *f = curr->fd_table[fd];
 	lock_acquire(&filesys_lock);
@@ -189,14 +186,10 @@ int sys_wait_handler(int pid){
 
 int sys_exec_handler(char * cmd_line){
 	struct thread *curr = thread_current();
-	if (!(cmd_line
-			&& is_user_vaddr(cmd_line)
-		  	&& pml4_get_page(curr->pml4, cmd_line)))
-	{
-		curr->my_exit_code = -1;
-		thread_exit();
+	if (!check_address(cmd_line)){
+		sys_exit_handler(-1);
 	}
- 	char *fn_copy = palloc_get_page (0);
+	char *fn_copy = palloc_get_page(0);
 	strlcpy (fn_copy, cmd_line, PGSIZE);
 	return process_exec(fn_copy);
 }
@@ -206,8 +199,7 @@ sys_seek_handler(int fd, unsigned position){
 	struct thread *curr = thread_current ();
 	struct file **f_table = curr->fd_table;
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL) {
-		curr->my_exit_code = -1;
-		thread_exit();
+		sys_exit_handler(-1);
 	}
 	struct file *f = f_table[fd];
 	lock_acquire(&filesys_lock);
@@ -221,10 +213,8 @@ sys_tell_handler(int fd){
 	struct thread *curr = thread_current ();
 	struct file **f_table = curr->fd_table;
 	unsigned result;
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL)
-	{
-		curr->my_exit_code = -1;
-		thread_exit();
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL){
+		sys_exit_handler(-1);
 	}
 	struct file *f = f_table[fd];
 	lock_acquire(&filesys_lock);
