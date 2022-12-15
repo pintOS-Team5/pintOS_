@@ -52,10 +52,10 @@ syscall_init (void) {
 bool
 check_address(char *ptr) {
     struct thread *curr = thread_current();
-    if(is_kernel_vaddr(ptr)) {
-        return false;
-    }
-    if (spt_find_page(&thread_current()->spt, ptr)== NULL) {
+    if(ptr == NULL || is_kernel_vaddr(ptr)) {
+		return false;
+	}
+    if (spt_find_page(&thread_current()->spt, pg_round_down(ptr))== NULL) {
         return false;
     }
     return true;
