@@ -216,6 +216,23 @@ sys_seek_handler(int fd, unsigned position){
 	
 }
 
+unsigned
+sys_tell_handler(int fd){
+	struct thread *curr = thread_current ();
+	struct file **f_table = curr->fd_table;
+	unsigned result;
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL)
+	{
+		curr->my_exit_code = -1;
+		thread_exit();
+	}
+	struct file *f = f_table[fd];
+	lock_acquire(&filesys_lock);
+	result = file_tell(f);
+	lock_release(&filesys_lock);
+	return result;
+}
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) { 
@@ -262,7 +279,10 @@ syscall_handler (struct intr_frame *f) {
 	case SYS_SEEK:
 		sys_seek_handler(f->R.rdi,f->R.rsi);
 		break;
-	
+	case SYS_TELL:
+		f->R.rax = sys_tell_handler(f->R.rdi);
+		break;
+
 	default:
 		break;
 	}
