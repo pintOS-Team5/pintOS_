@@ -827,4 +827,23 @@ setup_stack (struct intr_frame *if_) {
 
    return success;
 }
+
+bool
+mmap_lazy_load(struct page * page, struct container *container){
+   struct file *file = container->file;
+   uint32_t page_read_bytes = container->page_read_bytes;
+   uint32_t page_zero_bytes = container->page_zero_bytes;
+   off_t offset = container->offset;
+   struct list *mmap_list = &thread_current()->spt.mmap_list;
+
+   file_seek(file, offset);
+
+   if(file_read(file, page->va, page_read_bytes) != (int)page_read_bytes){
+      return false;
+   }
+   memset(page->va + page_read_bytes, 0, page_zero_bytes);
+   list_push_back(mmap_list, &page->mmap_elem);
+   page->file.aux = container;
+   return true;
+}
 #endif /* VM */

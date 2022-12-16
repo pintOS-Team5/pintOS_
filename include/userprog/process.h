@@ -2,6 +2,7 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "userprog/process.h"
 
 struct container{
     struct file *file;
@@ -16,5 +17,6 @@ int process_exec (void *f_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
+bool mmap_lazy_load(struct page *page, struct container *container);
 
 #endif /* userprog/process.h */

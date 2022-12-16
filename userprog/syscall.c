@@ -235,10 +235,16 @@ sys_mmap_handler(void *addr, size_t length, int writable, int fd, off_t offset){
 	struct file **f_table = curr->fd_table;
 	struct supplemental_page_table *spt = &curr->spt;
 	void* result;
+	
+	if (is_kernel_vaddr (addr) || is_kernel_vaddr (length) ||
+      is_kernel_vaddr (addr + length)) {
+		return NULL;
+	}
+
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL
 		|| addr == NULL || addr != pg_round_down(addr) || length <= 0
 		|| file_length(f_table[fd])<= 0|| spt_find_page(spt, pg_round_down(addr))){
-		sys_exit_handler(-1);
+		return NULL;
 	}
 	result = do_mmap(addr, length, writable, f_table[fd], offset);
 	return result;
