@@ -168,7 +168,6 @@ int sys_write_handler(int fd, void *buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
 	if (fd == 1){
-		
 		putbuf(buffer, size);
 		return size;
 	}
@@ -230,6 +229,26 @@ sys_tell_handler(int fd){
 	return result;
 }
 
+void *
+sys_mmap_handler(void *addr, size_t length, int writable, int fd, off_t offset){
+	struct thread *curr = thread_current ();
+	struct file **f_table = curr->fd_table;
+	struct supplemental_page_table *spt = &curr->spt;
+	void* result;
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL
+		|| addr == NULL || addr != pg_round_down(addr) || length <= 0
+		|| file_length(f_table[fd])<= 0|| spt_find_page(spt, pg_round_down(addr))){
+		sys_exit_handler(-1);
+	}
+	result = do_mmap(addr, length, writable, f_table[fd], offset);
+	return result;
+}
+
+void 
+sys_munmap_handler(void *addr){
+
+}
+
 /* The main system call interface */
 void
 syscall_handler (struct intr_frame *f) { 
@@ -280,6 +299,12 @@ syscall_handler (struct intr_frame *f) {
 		break;
 	case SYS_TELL:
 		f->R.rax = sys_tell_handler(f->R.rdi);
+		break;
+	case SYS_MMAP:
+		f->R.rax = sys_mmap_handler(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		sys_munmap_handler(f->R.rdi);
 		break;
 
 	default:
