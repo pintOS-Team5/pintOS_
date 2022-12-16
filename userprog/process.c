@@ -169,6 +169,9 @@ __do_fork (void **aux) {
    }
 
    process_activate (current);
+
+   current->my_file = file_duplicate(parent->my_file);
+
 #ifdef VM
    supplemental_page_table_init (&current->spt);
    if (!supplemental_page_table_copy (&current->spt, &parent->spt))
@@ -754,17 +757,15 @@ lazy_load_segment (struct page *page, struct container *aux) {
    size_t page_read_bytes = aux->page_read_bytes;
    size_t page_zero_bytes = aux->page_zero_bytes;
 
-   // printf("<<<<<<<%p, %d, %d, %d\n", file, offset, page_read_bytes, page_zero_bytes);
    bool locked = false;
 
    file_seek(file, offset);
-   // printf("FILE: %d\n", file->inode);
 
    if (file_read(file, page->va, page_read_bytes) != (int) page_read_bytes){
       return false;
    }
    memset(page->va + page_read_bytes, 0, page_zero_bytes);
-   free(aux);
+   // free(aux);
    return true;
 }
 
@@ -802,7 +803,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       container->offset = ofs;
       container->page_read_bytes = page_read_bytes;
       container->page_zero_bytes = page_zero_bytes;
-      // printf(">>>>>>>>>%p, %d, %d, %d\n", file, ofs, page_read_bytes, page_zero_bytes);
+   
       if (!vm_alloc_page_with_initializer(VM_ANON, upage,
                                           writable, lazy_load_segment, container))
          return false;

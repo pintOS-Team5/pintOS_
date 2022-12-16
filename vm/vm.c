@@ -9,6 +9,7 @@
 #include "threads/mmu.h"
 #include "vm/anon.h"
 #include "vm/file.h"
+#include "userprog/process.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -72,7 +73,9 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 				uninit_new(new_page, upage, init, type, aux, file_backed_initializer);
 				break;
 			default:
-				PANIC("NOT YET IMPLEMENT IN VM_ALLOC_INITIALIZER");
+				// PANIC("NOT YET IMPLEMENT IN VM_ALLOC_INITIALIZER");
+				printf("PAGE TYPE ERROR in vm_alloc_page_with_initializer\n");
+				goto err;
 			}
 			new_page->writable = writable;
 
@@ -81,10 +84,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 				goto err;
 			}
 
-		/* Claim immediately if the page is the first stack page. */
-			if (type & VM_MARKER_0){
-				return vm_do_claim_page(new_page);
-			}
+		// /* Claim immediately if the page is the first stack page. */
+		// 	if (type & VM_MARKER_0){
+		// 		return vm_do_claim_page(new_page);
+		// 	}
 
 		return true;
 	}
@@ -153,8 +156,11 @@ vm_get_frame (void) {
 	struct frame *frame = (struct frame *)malloc(sizeof (struct frame));
 	/* TODO: Fill this function. */
 	void *kva = palloc_get_page(PAL_USER|PAL_ZERO);
-	if (kva == NULL)
-		PANIC("No memory in physical memory IN VM_GET_FRAME");
+	if (kva == NULL){
+		thread_current()->my_exit_code = -1;
+		thread_exit();
+		// PANIC("No memory in physical memory IN VM_GET_FRAME");
+	}
 	frame->kva = kva;
 	frame->page = NULL;
 
@@ -209,9 +215,6 @@ vm_claim_page (void *va UNUSED) {
 	if (page)
 		return vm_do_claim_page(page);
 	return false;
-	// struct page *page = calloc (1, sizeof(struct page));
-
-	// return vm_do_claim_page (page);
 }
 
 /* Claim the PAGE and set up the mmu. */
@@ -225,8 +228,10 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable)){
+		// printf("SET ERROR\n");
 		return false;
 	}
+	// printf("SWAP_IN BEOFRE\n");
 	return swap_in(page, frame->kva);
 }
 
@@ -253,13 +258,60 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
-		struct supplemental_page_table *src UNUSED) {
+supplemental_page_table_copy (struct supplemental_page_table *dst,
+		struct supplemental_page_table *src) {
+
+	struct hash_iterator i;
+	struct hash *h = &src->pages;
+
+	hash_first(&i, h);
+	while(hash_next(&i)){
+		struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+		enum vm_type type = page_get_type(p);
+
+		void *va = p->va;
+		bool writable = p->writable;
+
+		if (p->operations->type == VM_UNINIT){
+			vm_initializer *init = p->uninit.init;
+			struct container *container = (struct container *)malloc(sizeof(struct container));
+			container = p->uninit.aux;
+
+			if (!vm_alloc_page_with_initializer(type, va, writable, init, container))
+				return false;
+		}
+		else{
+			if (!vm_alloc_page(type, va, writable))
+				return false;
+			if (!vm_claim_page(va))
+				return false;
+			memcpy(va, p->frame->kva, PGSIZE);
+		}
+	}
+	return true;
+}
+
+void clear_func (struct hash_elem *elem, void *aux) {
+	struct page *page = hash_entry(elem, struct page, hash_elem);
+	vm_dealloc_page(page);
 }
 
 /* Free the resource hold by the supplemental page table */
 void
-supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+
+	// struct hash_iterator i;
+	// struct hash *h = &spt->pages;
+
+	// hash_first(&i, h);
+	// while (hash_next(&i)){
+	// 	struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
+	// 	destroy (p);
+	// }
+	// hash_destroy(h, NULL);
+	// hash_init(h, page_hash, page_less, NULL);
+
+	hash_clear(&spt->pages, clear_func);
 }
