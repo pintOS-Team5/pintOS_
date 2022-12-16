@@ -551,11 +551,9 @@ load (const char *file_name, struct intr_frame *if_) {
 
    /* TODO: Your code goes here.
     * TODO: Implement argument passing (see project2/argument_passing.html). */
-
    /* PROJECT 2: ARGUMENT PASSING */
    size_t sum = 0;
    char *argv_address[40];
-
    // step 3-1. Break the command into words
    for(int i = argc-1; i >= 0; i--) {
       size_t len = strlen(argv[i]) + 1;   // '\0' 포함
@@ -563,13 +561,11 @@ load (const char *file_name, struct intr_frame *if_) {
       argv_address[i] = (if_->rsp - sum);
       memcpy((if_->rsp - sum), argv[i], len);
     }
-
    // step 3-2. Word-Align
    while((if_->rsp - sum) % 8 != 0){
       sum++;
       *(uint8_t *) (if_->rsp - sum) = 0;
    }
-
    // step 2. Push the address of each string plus a null pointer sentinel
    for (int i = argc; i >=0 ; i--){
       sum += 8;
@@ -578,15 +574,12 @@ load (const char *file_name, struct intr_frame *if_) {
       else
          memcpy(if_->rsp - sum, &argv_address[i], sizeof(char **));
    }
-
    // step 1-1. Point %rsi to argv (the address of argv[0]) and set %rdi to argc.
    if_->rsp -= sum;  
    if_->R.rdi = argc;
    if_->R.rsi = if_->rsp;
-
    // step 1-2. Push a fake "return address"
    memset(if_->rsp - 8, 0, sizeof(void *));
-
 
    file_deny_write(file);
    t->my_file = file;

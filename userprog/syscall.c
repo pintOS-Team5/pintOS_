@@ -50,15 +50,21 @@ syscall_init (void) {
 }
 
 bool
-check_address(char *ptr) {
-    struct thread *curr = thread_current();
-    if(ptr == NULL || is_kernel_vaddr(ptr)) {
-		return false;
-	}
-    if (spt_find_page(&thread_current()->spt, pg_round_down(ptr))== NULL) {
-        return false;
+check_address(bool writable, char *ptr) {
+    if (ptr == NULL){
+        return false ;
     }
-    return true;
+    struct thread *curr = thread_current();
+    struct page *p = spt_find_page(&curr->spt, pg_round_down(ptr));
+    if (p == NULL) {
+        return false;
+    } else {
+		if (writable && !p->writable)
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 void
@@ -75,7 +81,7 @@ sys_exit_handler(int arg1){
 bool sys_create_handler(char *filename, unsigned intial_size){
 	bool result;
 	struct thread *curr = thread_current();
-	if (!check_address(filename)){
+	if (!check_address(false, filename)){
 		sys_exit_handler(-1);
 	}
 	lock_acquire(&filesys_lock);
@@ -94,7 +100,7 @@ bool sys_remove_handler(char *filename){
 
 int sys_open_handler(char *filename){
 	struct thread *curr = thread_current();
-	if (!check_address(filename))
+	if (!check_address(false, filename))
 		sys_exit_handler(-1);
 	lock_acquire(&filesys_lock);
 	struct file *file = filesys_open(filename);
@@ -147,7 +153,7 @@ int sys_filesize_handler(int fd){
 int sys_read_handler(int fd, void* buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(buffer))
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(true, buffer))
 	{
 		sys_exit_handler(-1);
 	}
@@ -162,10 +168,11 @@ int sys_write_handler(int fd, void *buffer, unsigned size){
 	struct thread *curr = thread_current();
 	int result;
 	if (fd == 1){
+		
 		putbuf(buffer, size);
 		return size;
 	}
-	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(buffer))
+	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL || !check_address(false, buffer))
 	{
 		sys_exit_handler(-1);
 	}
@@ -186,7 +193,7 @@ int sys_wait_handler(int pid){
 
 int sys_exec_handler(char * cmd_line){
 	struct thread *curr = thread_current();
-	if (!check_address(cmd_line)){
+	if (!check_address(false, cmd_line)){
 		sys_exit_handler(-1);
 	}
 	char *fn_copy = palloc_get_page(0);
@@ -228,6 +235,8 @@ void
 syscall_handler (struct intr_frame *f) { 
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
+	thread_current()->stack_pointer = f->rsp;
+
 	switch (syscall_n)
 	{
 	case SYS_HALT:

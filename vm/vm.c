@@ -171,7 +171,15 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr UNUSED) {
+vm_stack_growth (void *addr) {
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	void *pg_aligned_addr =  pg_round_down(addr);
+
+	while (!spt_find_page(spt, pg_aligned_addr)){
+		vm_alloc_page(VM_ANON | VM_MARKER_0, pg_aligned_addr, true);
+		vm_claim_page(pg_aligned_addr);
+		pg_aligned_addr += PGSIZE;
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -185,17 +193,34 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
+	uint64_t MAX_STACK = USER_STACK - (1 << 20);
+	void *pg_aligned_addr = pg_round_down(addr);
+	void *stack_pointer = NULL;
+
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
-
 	if ((!not_present) && write)
 		return false;
 
-	page = spt_find_page(spt, pg_round_down(addr));
-	if (page){
-		return vm_do_claim_page (page);
+	if (is_kernel_vaddr(addr))
+		return false;
+
+	if (user)
+		stack_pointer = f->rsp;
+	else
+		stack_pointer = thread_current()->stack_pointer;
+
+	page = spt_find_page(spt, pg_aligned_addr);
+	if (!page){
+		if (stack_pointer - 8 <= addr && MAX_STACK < addr && addr < USER_STACK){
+			vm_stack_growth(pg_aligned_addr);
+			page = spt_find_page(spt, pg_aligned_addr);
+		}
+		else{
+			return false;
+		}
 	}
-	return false;
+	return vm_do_claim_page(page);
 }
 
 /* Free the page.
