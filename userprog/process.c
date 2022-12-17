@@ -285,10 +285,16 @@ process_wait (tid_t child_tid) {
 void
 process_exit (void) {
    struct thread *curr = thread_current ();
+   bool locked = false;
 
    if (curr->pml4 != NULL)
       printf("%s: exit(%d)\n", curr->name, curr->my_exit_code);
    process_cleanup();
+
+   if (!lock_held_by_current_thread(&filesys_lock)){
+      locked = true;
+      lock_acquire(&filesys_lock);
+   }
 
    if (curr->my_file){
       file_close(curr->my_file);
@@ -296,7 +302,6 @@ process_exit (void) {
    }
 
    struct file **fd_table = curr->fd_table;
-   lock_acquire(&filesys_lock);
    for (int i = FDBASE; i < FDLIMIT; i++)
    {
       if (fd_table[i]){
@@ -304,7 +309,11 @@ process_exit (void) {
          fd_table[i] = NULL;
       }
    }
-   lock_release(&filesys_lock);
+   
+   if(locked){
+      locked = false;
+      lock_release(&filesys_lock);
+   }
 
    enum intr_level old_level;
    old_level = intr_disable();
@@ -828,22 +837,4 @@ setup_stack (struct intr_frame *if_) {
    return success;
 }
 
-bool
-mmap_lazy_load(struct page * page, struct container *container){
-   struct file *file = container->file;
-   uint32_t page_read_bytes = container->page_read_bytes;
-   uint32_t page_zero_bytes = container->page_zero_bytes;
-   off_t offset = container->offset;
-   struct list *mmap_list = &thread_current()->spt.mmap_list;
-
-   file_seek(file, offset);
-
-   if(file_read(file, page->va, page_read_bytes) != (int)page_read_bytes){
-      return false;
-   }
-   memset(page->va + page_read_bytes, 0, page_zero_bytes);
-   list_push_back(mmap_list, &page->mmap_elem);
-   page->file.aux = container;
-   return true;
-}
 #endif /* VM */

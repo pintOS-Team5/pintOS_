@@ -16,6 +16,7 @@
 #include "userprog/process.h"
 #include "lib/string.h"
 #include "threads/palloc.h"
+#include "threads/vaddr.h"
 
 
 void syscall_entry (void);
@@ -235,14 +236,14 @@ sys_mmap_handler(void *addr, size_t length, int writable, int fd, off_t offset){
 	struct file **f_table = curr->fd_table;
 	struct supplemental_page_table *spt = &curr->spt;
 	void* result;
-	
 	if (is_kernel_vaddr (addr) || is_kernel_vaddr (length) ||
       is_kernel_vaddr (addr + length)) {
 		return NULL;
 	}
-
 	if (fd < FDBASE || fd >= FDLIMIT || curr->fd_table[fd] == NULL
-		|| addr == NULL || addr != pg_round_down(addr) || length <= 0
+		|| addr <= NULL || addr != pg_round_down(addr) 
+		|| is_kernel_vaddr(addr) || is_kernel_vaddr (addr + length)
+		|| (offset % PGSIZE ) != 0 || length <= 0 || length >= 0x8004000000
 		|| file_length(f_table[fd])<= 0|| spt_find_page(spt, pg_round_down(addr))){
 		return NULL;
 	}
@@ -252,7 +253,35 @@ sys_mmap_handler(void *addr, size_t length, int writable, int fd, off_t offset){
 
 void 
 sys_munmap_handler(void *addr){
+	ASSERT(addr == pg_round_down(addr));
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct page *page;
+	int page_cnt;
+	if ((page = spt_find_page(spt, addr)) == NULL || VM_TYPE(page->uninit.type) != VM_FILE || (page_cnt = page->page_cnt) == 0)
+	{
+		return;
+	}
+	do_munmap(addr);
 
+	/* remove frome mmap_list */
+	struct list_elem *e;
+	struct list *m_list = &spt->mmap_list;
+
+	for (e = list_begin(m_list); e != list_end(m_list); e = list_next(e)){
+		struct page *p = list_entry(e, struct page, mmap_elem);
+		if(p->va == addr)
+			break;
+	}
+
+	list_remove(e);
+	ASSERT(addr == pg_round_down(addr));
+
+	/* remove page from SPT */
+	for (int i = 0; i < page_cnt; i++){
+		page = spt_find_page(spt, addr);
+		spt_remove_page(spt, page);
+		addr += PGSIZE;
+	}
 }
 
 /* The main system call interface */

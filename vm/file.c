@@ -4,6 +4,7 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "threads/mmu.h"
+#include "userprog/syscall.h"
 #include <round.h>
 
 static bool file_backed_swap_in (struct page *page, void *kva);
@@ -31,8 +32,10 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	struct file_page *file_page = &page->file;
 
-	file_page->type = type;
+	file_page->init = page->uninit.init;
+	file_page->type = page->uninit.type;
 	file_page->aux = page->uninit.aux;
+	file_page->page_initializer = page->uninit.page_initializer;
 	return true;
 }
 
@@ -47,12 +50,16 @@ file_backed_swap_in (struct page *page, void *kva) {
 	size_t page_read_bytes = container->page_read_bytes;
 	size_t page_zero_bytes = container->page_zero_bytes;
 
+	/* 나도 이걸 왜 하는지 모르겠음 */
+	bool old_dirty = pml4_is_dirty(thread_current()->pml4, page->va);
+
 	if (file_read_at(file, page->va, page_read_bytes, offset) != (int)page_read_bytes){
 		return false;
 	}
-	memset(page->va + page_read_bytes, 0, PGSIZE);
+	memset(page->va + page_read_bytes, 0, page_zero_bytes);
 
-	pml4_set_dirty(thread_current()->pml4, page->va, 0);
+	/* 나도 이걸 왜 하는지 모르겠음 */
+	pml4_set_dirty(thread_current()->pml4, page->va, old_dirty);
 
 	return true;
 }
@@ -77,16 +84,27 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
-	size_t read_bytes = length;
-	size_t zero_bytes = ROUND_UP(length, PGSIZE) - length;
-
 	struct supplemental_page_table *spt = &thread_current()->spt;
+	void *start_addr = addr;
+	int page_cnt = 0;
 
-	for (size_t cur_ = 0; cur_ < length; cur_ += PGSIZE){
-		if (spt_find_page(spt, addr + cur_))
+	uint32_t read_bytes, zero_bytes, readable_bytes;
+	if((readable_bytes = file_length(file) - offset) <= 0)
+		return NULL;
+
+	read_bytes = length <= readable_bytes ? length : readable_bytes;
+	zero_bytes = PGSIZE - (read_bytes % PGSIZE);
+
+	for (;addr < (start_addr + read_bytes + zero_bytes); addr += PGSIZE)
+	{
+		page_cnt += 1;
+		if (spt_find_page(spt, pg_round_down(addr)))
 			return NULL;
 	}
-	while(read_bytes > 0 || zero_bytes > 0){
+
+	addr = start_addr;
+	while (read_bytes > 0 || zero_bytes > 0)
+	{
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
@@ -98,7 +116,7 @@ do_mmap (void *addr, size_t length, int writable,
 		container->page_zero_bytes = page_zero_bytes;
 		container->offset = offset;	
 
-		if (!vm_alloc_page_with_initializer (VM_FILE, addr, writable, mmap_lazy_load, container)) {
+		if (!vm_alloc_page_with_initializer (VM_FILE, addr, writable, file_backed_swap_in, container)) {
 			return NULL;
 		}
 		
@@ -107,14 +125,58 @@ do_mmap (void *addr, size_t length, int writable,
 		zero_bytes -= page_zero_bytes;
 		offset += PGSIZE;
 		addr += PGSIZE;
-		}
+	}
 
-		/* 성공하면 파일이 매핑된 가상 주소를 반환해야 해 ... */
-		return addr ; 
+	struct page *start_page = spt_find_page(spt, start_addr);
+	start_page->page_cnt = page_cnt;
+	list_push_back(&spt->mmap_list, &start_page->mmap_elem);
+
+	return start_addr ; 
 }
 
 
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	ASSERT(addr == pg_round_down(addr));
+
+	struct supplemental_page_table *spt = &thread_current()->spt;
+	struct container *container;
+	uint64_t *pml4 = thread_current()->pml4;
+	struct file *file;
+	void *buffer = addr;
+	bool locked = false;
+	int page_cnt = 0;
+
+	struct page *page = spt_find_page(spt, addr);
+	if (!page)
+		return;
+	page_cnt = page->page_cnt;
+
+	if (!lock_held_by_current_thread(&filesys_lock)){
+		locked = true;
+		lock_acquire(&filesys_lock);
+	}
+
+	for (int i = 0; i < page_cnt; i++){
+		page = spt_find_page(spt, pg_round_down(addr));
+		container = page->file.aux;
+		file = container->file;
+
+		if (page->frame){
+			if (pml4_is_dirty(pml4, addr)){
+				file_write_at(file, addr, container->page_read_bytes, container->offset);
+			}
+
+			/* remove page from pml4 */
+			pml4_clear_page(pml4, addr);
+		}
+
+		addr += PGSIZE;
+	}
+
+	if (locked){
+		locked = true;
+		lock_release(&filesys_lock);
+	}
 }

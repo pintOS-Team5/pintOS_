@@ -327,16 +327,15 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 
-	// struct hash_iterator i;
-	// struct hash *h = &spt->pages;
+	struct list *mmap_list = &spt->mmap_list;
+	while (!list_empty(mmap_list)){
+		struct page *page = list_entry (list_pop_front (mmap_list), struct page, mmap_elem);
+		do_munmap(page->va);
+	}
 
-	// hash_first(&i, h);
-	// while (hash_next(&i)){
-	// 	struct page *p = hash_entry(hash_cur(&i), struct page, hash_elem);
-	// 	destroy (p);
-	// }
-	// hash_destroy(h, NULL);
-	// hash_init(h, page_hash, page_less, NULL);
+	struct hash *h = &spt->pages;
 
-	hash_clear(&spt->pages, clear_func);
+	// hash_destroy (h, clear_func);
+	// hash_init (h, page_hash, page_less, NULL);
+	hash_clear(h, clear_func);
 }
