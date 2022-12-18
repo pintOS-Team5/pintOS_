@@ -80,7 +80,9 @@ uninit_destroy (struct page *page) {
 		ft_remove_frame(frame);
 		frame->page = NULL;
 		page->frame = NULL;
+
+		free(frame);
+		frame = NULL;
 	}
-	free(frame);
-	// free(aux);
+	free(aux);
 }

@@ -230,13 +230,11 @@ process_exec (void *f_name) {
    /* We first kill the current context */
    process_cleanup();
 
-   // printf("BEFORE LOCK\n");
    lock_acquire(&filesys_lock);
    /* And then load the binary */
    success = load (file_name, &_if);
    /* If load failed, quit. */
    lock_release(&filesys_lock);
-   // printf("BEFORE LOCK\n");
 
    palloc_free_page (file_name);
    if (!success)
@@ -287,7 +285,7 @@ process_wait (tid_t child_tid) {
 /* Exit the process. This function is called by thread_exit (). */
 void
 process_exit (void) {
-   struct thread *curr = thread_current ();
+   struct thread *curr = thread_current();
    bool locked = false;
 
    if (curr->pml4 != NULL)
@@ -387,7 +385,7 @@ process_activate (struct thread *next) {
 /* We load ELF binaries.  The following definitions are taken
  * from the ELF specification, [ELF1], more-or-less verbatim.  */
 
-// /* ELF types.  See [ELF1] 1-2. */
+/* ELF types.  See [ELF1] 1-2. */
 #define EI_NIDENT 16
 
 #define PT_NULL    0            /* Ignore. */
@@ -770,7 +768,6 @@ lazy_load_segment (struct page *page, struct container *aux) {
       return false;
    }
    memset(page->va + page_read_bytes, 0, page_zero_bytes);
-   // free(aux);
    return true;
 }
 

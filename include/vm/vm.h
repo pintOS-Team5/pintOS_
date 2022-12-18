@@ -66,7 +66,7 @@ struct page {
 };
 
 struct hash frames;
-// struct lock frames_lock;
+struct lock frames_lock;
 
 /* The representation of "frame" */
 struct frame {

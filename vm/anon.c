@@ -109,14 +109,11 @@ write_to_swap_disk(disk_sector_t slot_no, void *upage){
 void
 read_to_swap_disk(disk_sector_t slot_no, void *upage){
 	disk_sector_t sec_no = slot_to_sector(slot_no);
-	// printf("SEC_NO: %d\n", sec_no);
 	for (int i = 0; i < SECTOR_PER_SLOT; i++)
 	{
 		disk_read(swap_disk, sec_no + i, upage);
-		// printf("FOR STATEMENT : %d\n", i);
 		upage += DISK_SECTOR_SIZE;
 	}
-	// printf("for done\n");
 }
 
 // JH: swap_in() 이 호출된느 시점은 vm_claim_page() 또는 vm_do_claim_page()를 호출하는 시점이고
@@ -140,7 +137,6 @@ read_to_swap_disk(disk_sector_t slot_no, void *upage){
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
-	// printf("SWAP IN\n");
 	struct anon_page *anon_page = &page->anon;
 	disk_sector_t slot_no = anon_page->swap_slot_no;
 
@@ -159,7 +155,6 @@ anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	struct frame *frame = page->frame;
 	disk_sector_t slot_no = salloc_get_slot();
-	// printf("SLOT_NO: %d\n", slot_no);
 
 	ASSERT(frame != NULL);
 
@@ -188,7 +183,6 @@ anon_destroy (struct page *page) {
 	disk_sector_t slot_no = anon_page->swap_slot_no;
 
 	if (frame == NULL || aux == NULL){
-		// goto end;
 		return;
 	}
 
@@ -208,6 +202,6 @@ anon_destroy (struct page *page) {
 	page->frame = NULL;
 	free(frame);
 
-// end:
-// 	free(aux);
+end:
+	free(aux);
 }

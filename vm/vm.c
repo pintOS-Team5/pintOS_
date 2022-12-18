@@ -39,6 +39,24 @@ page_get_type (struct page *page) {
 	}
 }
 
+enum vm_type
+page_get_union_type(struct page *page) {
+    enum vm_type type = page_get_type(page);
+    if(VM_TYPE (page->operations->type) != VM_UNINIT) {
+        switch(type){
+            case VM_ANON:
+                type = page->anon.type;
+                break;
+            case VM_FILE:
+                type = page->file.type;
+                break;
+            default:
+                break;
+        }
+    }
+    return type;
+}
+
 /* Helpers */
 static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
@@ -73,7 +91,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 				uninit_new(new_page, upage, init, type, aux, file_backed_initializer);
 				break;
 			default:
-				// PANIC("NOT YET IMPLEMENT IN VM_ALLOC_INITIALIZER");
 				printf("PAGE TYPE ERROR in vm_alloc_page_with_initializer\n");
 				goto err;
 			}
@@ -83,11 +100,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			if(!spt_insert_page(spt, new_page)){
 				goto err;
 			}
-
-		// /* Claim immediately if the page is the first stack page. */
-		// 	if (type & VM_MARKER_0){
-		// 		return vm_do_claim_page(new_page);
-		// 	}
 
 		return true;
 	}
@@ -133,11 +145,18 @@ ft_find_frame (void *kva){
 	struct frame * result_frame = NULL;
 	struct hash_elem * e;
 	struct frame f;
+	bool locked = false;
 
 	f.kva = kva;
-	// lock_acquire(&frames_lock);
+	if (!lock_held_by_current_thread(&frames_lock)){
+		locked = true;
+		lock_acquire(&frames_lock);
+	}
 	e = hash_find(&frames, &f.hash_elem);
-	// lock_release(&frames_lock);
+	if (locked){
+		locked = false;
+		lock_release(&frames_lock);
+	}
 	if (e)
 		result_frame = hash_entry(e, struct frame, hash_elem);
 	return result_frame;
@@ -147,23 +166,30 @@ bool
 ft_insert_frame(struct frame *frame){
 	bool succ = false;
 	bool locked = false;
-	// if(!lock_held_by_current_thread(&frames_lock)){
-	// 	locked = true;
-	// 	lock_acquire(&frames_lock);
-	// }
+	if(!lock_held_by_current_thread(&frames_lock)){
+		locked = true;
+		lock_acquire(&frames_lock);
+	}
 	succ = hash_insert(&frames, &frame->hash_elem) == NULL;
-	// if (locked){
-	// 	locked = false;
-	// 	lock_acquire(&frames_lock);
-	// }
+	if (locked){
+		locked = false;
+		lock_release(&frames_lock);
+	}
 	return succ;
 }
 
 void
 ft_remove_frame(struct frame *frame) {
-    // lock_acquire(&frames_lock);
-    hash_delete(&frames, &frame->hash_elem);
-    // lock_release(&frames_lock);
+	bool locked = false;
+	if(!lock_held_by_current_thread(&frames_lock)){
+		locked = true;
+		lock_acquire(&frames_lock);
+	}
+	hash_delete(&frames, &frame->hash_elem);
+    if (locked){
+		locked = false;
+		lock_release(&frames_lock);
+	}
 }
 
 uint64_t 
@@ -181,7 +207,7 @@ frame_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UN
 
 void
 frame_table_init(void){
-	// lock_init(&frames_lock);
+	lock_init(&frames_lock);
 	hash_init(&frames, frame_hash, frame_less, NULL);
 }
 
@@ -195,8 +221,12 @@ vm_get_victim (void) {
 	struct hash_iterator ft_iter;
 	struct frame *f;
 	bool victim_is_dirty = true;
+	bool locked = false;
 
-	// lock_acquire(&frames_lock);
+	if(!lock_held_by_current_thread(&frames_lock)){
+		locked = true;
+		lock_acquire(&frames_lock);
+	}
 	hash_first(&ft_iter, &frames);
 	while (hash_next(&ft_iter)){
 		f = hash_entry(hash_cur(&ft_iter), struct frame, hash_elem);
@@ -216,7 +246,10 @@ vm_get_victim (void) {
 			victim = f;
 		}
 	}
-	// lock_release(&frames_lock);
+	if (locked){
+		locked = false;
+		lock_release(&frames_lock);
+	}
 
 	// frames에서 매핑된 page와의 연결을 끊을 frame을 찾아야 한다.
 	// dirty한 페이지와 매핑된 frame을 꺼내게 되면 swapout해줘야 하므로
@@ -294,7 +327,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	if ((!not_present) && write)
+	{
 		return false;
+	}
 
 	if (is_kernel_vaddr(addr))
 		return false;
@@ -350,9 +385,7 @@ vm_do_claim_page (struct page *page) {
 	if (!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->writable)){
 		return false;
 	}
-	// printf("SWAP IN BEFORE\n");
 	result = swap_in(page, frame->kva);
-	// printf("SWAP IN AFTER : %d\n", result);
 	return result;
 }
 
@@ -396,7 +429,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		if (p->operations->type == VM_UNINIT){
 			vm_initializer *init = p->uninit.init;
 			struct container *container = (struct container *)malloc(sizeof(struct container));
-			container = p->uninit.aux;
+			container->file = file_reopen(((struct container*)p->uninit.aux)->file);
+			container->offset = ((struct container *)p->uninit.aux)->offset;
+			container->page_read_bytes = ((struct container *)p->uninit.aux)->page_read_bytes;
+			container->page_zero_bytes = ((struct container *)p->uninit.aux)->page_zero_bytes;
 
 			if (!vm_alloc_page_with_initializer(type, va, writable, init, container))
 				return false;
@@ -408,8 +444,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				return false;
 			memcpy(va, p->frame->kva, PGSIZE);
 		}
+
 	}
 	return true;
+
 }
 
 void clear_func (struct hash_elem *elem, void *aux) {
@@ -422,7 +460,6 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-
 	struct list *mmap_list = &spt->mmap_list;
 	while (!list_empty(mmap_list)){
 		struct page *page = list_entry (list_pop_front (mmap_list), struct page, mmap_elem);
@@ -431,8 +468,6 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 
 	struct hash *h = &spt->pages;
 
-	// hash_destroy (h, clear_func);
-	// hash_init (h, page_hash, page_less, NULL);
 	hash_clear(h, clear_func);
 }
 

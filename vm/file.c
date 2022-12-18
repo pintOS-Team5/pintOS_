@@ -34,17 +34,16 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	struct file_page *file_page = &page->file;
 
-	file_page->init = page->uninit.init;
-	file_page->type = page->uninit.type;
-	file_page->aux = page->uninit.aux;
-	file_page->page_initializer = page->uninit.page_initializer;
+	file_page->init = page->file.init;
+	file_page->type = page->file.type;
+	file_page->aux = page->file.aux;
+	file_page->page_initializer = page->file.page_initializer;
 	return true;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	// printf("SWAP IN\n");
 	bool locked = false;
 	struct file_page *file_page = &page->file;
 
@@ -117,7 +116,6 @@ file_backed_destroy (struct page *page) {
 
 	if(frame == NULL || aux == NULL){
 		goto end;
-		// return;
 	}
 
 	struct container *container = (struct container*)aux;
@@ -173,27 +171,6 @@ void file_backed_write_back(void *aux, void *kva){
 		locked = false;
 		lock_release(&filesys_lock);
 	}
-}
-
-static bool 
-file_lazy_load_segment (struct page *page, void *aux) {
-    struct container *args = (struct container *)aux;
-    struct file *file = args->file;
-	off_t ofs = args->offset;
-	size_t read_bytes = args->page_read_bytes;
-	size_t zero_bytes = args->page_zero_bytes;
-	bool file_lock_holder = lock_held_by_current_thread(&filesys_lock);
-
-    if(!file_lock_holder) lock_acquire(&filesys_lock);
-    file_seek(file, ofs);
-    if (file_read (file, page->frame->kva, read_bytes) != (int) read_bytes) {
-        return false;
-    }
-    if(!file_lock_holder) lock_release(&filesys_lock);
-
-    memset (page->frame->kva + read_bytes, 0, zero_bytes);
-    
-    return true;
 }
 
 
@@ -257,7 +234,6 @@ do_mmap (void *addr, size_t length, int writable,
 	struct page *start_page = spt_find_page(spt, start_addr);
 	start_page->page_cnt = page_cnt;
 	list_push_back(&spt->mmap_list, &start_page->mmap_elem);
-	// printf("start_addr : %p\n", start_addr);
 	return start_addr;
 }
 

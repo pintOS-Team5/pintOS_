@@ -52,10 +52,11 @@ syscall_init (void) {
 
 bool
 check_address(bool writable, char *ptr) {
-    if (ptr == NULL){
-        return false ;
-    }
-    struct thread *curr = thread_current();
+	if (ptr == NULL)
+	{
+		return false ;
+	}
+	struct thread *curr = thread_current();
     struct page *p = spt_find_page(&curr->spt, pg_round_down(ptr));
     if (p == NULL) {
         return false;
