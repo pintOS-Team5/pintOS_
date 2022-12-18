@@ -24,7 +24,7 @@ static char big_chunks[CHUNK_SIZE];
 void
 test_main (void) 
 {
-	size_t i;
+    size_t i;
     void* pa;
     char *mem;
 

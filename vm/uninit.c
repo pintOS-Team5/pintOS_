@@ -11,6 +11,9 @@
 #include "vm/vm.h"
 #include "vm/uninit.h"
 #include "threads/malloc.h"
+#include "threads/vaddr.h"
+#include "threads/mmu.h"
+#include <string.h>
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -66,4 +69,18 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+
+	struct frame *frame = page->frame;
+	void *aux = uninit->aux;
+
+	if (frame != NULL){
+		memset(page->va, 0, PGSIZE);
+		pml4_clear_page(page->pml4, page->va);
+
+		ft_remove_frame(frame);
+		frame->page = NULL;
+		page->frame = NULL;
+	}
+	free(frame);
+	// free(aux);
 }

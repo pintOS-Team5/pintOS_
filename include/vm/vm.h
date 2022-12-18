@@ -51,6 +51,7 @@ struct page {
 	struct hash_elem hash_elem;
 	struct list_elem mmap_elem;
 	int page_cnt;
+	uint64_t *pml4; //page를 만든 thread의 pml4
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -64,10 +65,14 @@ struct page {
 	};
 };
 
+struct hash frames;
+// struct lock frames_lock;
+
 /* The representation of "frame" */
 struct frame {
 	void *kva;
 	struct page *page;
+	struct hash_elem hash_elem;
 };
 
 /* The function table for page operations.
@@ -115,5 +120,10 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+
+struct frame *ft_find_frame(void *kva);
+bool ft_insert_frame(struct frame *frame);
+void frame_table_init(void);
+void ft_remove_frame(struct frame *frame);
 
 #endif  /* VM_VM_H */

@@ -290,7 +290,6 @@ syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
 	int syscall_n = f->R.rax;
 	thread_current()->stack_pointer = f->rsp;
-
 	switch (syscall_n)
 	{
 	case SYS_HALT:

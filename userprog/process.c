@@ -71,6 +71,7 @@ static void
 initd (void *f_name) {
 #ifdef VM
    supplemental_page_table_init (&thread_current ()->spt);
+   frame_table_init();
 #endif
 
    process_init ();
@@ -229,11 +230,13 @@ process_exec (void *f_name) {
    /* We first kill the current context */
    process_cleanup();
 
+   // printf("BEFORE LOCK\n");
    lock_acquire(&filesys_lock);
    /* And then load the binary */
    success = load (file_name, &_if);
    /* If load failed, quit. */
    lock_release(&filesys_lock);
+   // printf("BEFORE LOCK\n");
 
    palloc_free_page (file_name);
    if (!success)
