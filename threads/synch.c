@@ -107,7 +107,6 @@ sema_up (struct semaphore *sema) {
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
-	// ASSERT(!list_empty(&sema->waiters));
 	old_level = intr_disable();
 
 	if (!list_empty (&sema->waiters)){
@@ -116,7 +115,7 @@ sema_up (struct semaphore *sema) {
 	}
 	sema->value++;
 	
-	if (!is_readylist_empty() && (thread_get_priority() < get_ready_list_max_priority()))
+	if (!intr_context() && !is_readylist_empty() && (thread_get_priority() < get_ready_list_max_priority()))
 		thread_yield();
 	
 	intr_set_level (old_level);
